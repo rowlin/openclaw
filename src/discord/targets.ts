@@ -9,6 +9,7 @@ import {
   type MessagingTargetKind,
   type MessagingTargetParseOptions,
 } from "../channels/targets.js";
+import { rememberDiscordDirectoryUser } from "./directory-cache.js";
 import { listDiscordDirectoryPeersLive } from "./directory-live.js";
 
 export type DiscordTargetKind = MessagingTargetKind;
@@ -115,6 +116,11 @@ export async function resolveDiscordTarget(
     if (match && match.kind === "user") {
       // Extract user ID from the directory entry (format: "user:<id>")
       const userId = match.id.replace(/^user:/, "");
+      rememberDiscordDirectoryUser({
+        accountId: options.accountId,
+        userId,
+        handles: [trimmed, match.name, match.handle],
+      });
       return buildMessagingTarget("user", userId, trimmed);
     }
   } catch {

@@ -7,6 +7,12 @@ import { isTruthyEnvValue } from "../infra/env.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getProcessSupervisor } from "../process/supervisor/index.js";
 import { resolveSessionAgentIds } from "./agent-scope.js";
+import {
+  analyzeBootstrapBudget,
+  buildBootstrapInjectionStats,
+  buildBootstrapPromptWarning,
+  buildBootstrapTruncationReportMeta,
+} from "./bootstrap-budget.js";
 import { makeBootstrapWarn, resolveBootstrapContextForRun } from "./bootstrap-files.js";
 import { resolveCliBackendConfig } from "./cli-backends.js";
 import {
@@ -26,8 +32,15 @@ import {
 } from "./cli-runner/helpers.js";
 import { resolveOpenClawDocsPath } from "./docs-path.js";
 import { FailoverError, resolveFailoverStatus } from "./failover-error.js";
-import { classifyFailoverReason, isFailoverErrorMessage } from "./pi-embedded-helpers.js";
+import {
+  classifyFailoverReason,
+  isFailoverErrorMessage,
+  resolveBootstrapMaxChars,
+  resolveBootstrapPromptTruncationWarningMode,
+  resolveBootstrapTotalMaxChars,
+} from "./pi-embedded-helpers.js";
 import type { EmbeddedPiRunResult } from "./pi-embedded-runner.js";
+import { buildSystemPromptReport } from "./system-prompt-report.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "./workspace-run.js";
 
 const log = createSubsystemLogger("agent/claude-cli");
@@ -49,6 +62,9 @@ export async function runCliAgent(params: {
   streamParams?: import("../commands/agent/types.js").AgentStreamParams;
   ownerNumbers?: string[];
   cliSessionId?: string;
+  bootstrapPromptWarningSignaturesSeen?: string[];
+  /** Backward-compat fallback when only the previous signature is available. */
+  bootstrapPromptWarningSignature?: string;
   images?: ImageContent[];
 }): Promise<EmbeddedPiRunResult> {
   const started = Date.now();
@@ -86,12 +102,29 @@ export async function runCliAgent(params: {
     .join("\n");
 
   const sessionLabel = params.sessionKey ?? params.sessionId;
-  const { contextFiles } = await resolveBootstrapContextForRun({
+  const { bootstrapFiles, contextFiles } = await resolveBootstrapContextForRun({
     workspaceDir,
     config: params.config,
     sessionKey: params.sessionKey,
     sessionId: params.sessionId,
     warn: makeBootstrapWarn({ sessionLabel, warn: (message) => log.warn(message) }),
+  });
+  const bootstrapMaxChars = resolveBootstrapMaxChars(params.config);
+  const bootstrapTotalMaxChars = resolveBootstrapTotalMaxChars(params.config);
+  const bootstrapAnalysis = analyzeBootstrapBudget({
+    files: buildBootstrapInjectionStats({
+      bootstrapFiles,
+      injectedFiles: contextFiles,
+    }),
+    bootstrapMaxChars,
+    bootstrapTotalMaxChars,
+  });
+  const bootstrapPromptWarningMode = resolveBootstrapPromptTruncationWarningMode(params.config);
+  const bootstrapPromptWarning = buildBootstrapPromptWarning({
+    analysis: bootstrapAnalysis,
+    mode: bootstrapPromptWarningMode,
+    seenSignatures: params.bootstrapPromptWarningSignaturesSeen,
+    previousSignature: params.bootstrapPromptWarningSignature,
   });
   const { defaultAgentId, sessionAgentId } = resolveSessionAgentIds({
     sessionKey: params.sessionKey,
@@ -118,8 +151,31 @@ export async function runCliAgent(params: {
     docsPath: docsPath ?? undefined,
     tools: [],
     contextFiles,
+    bootstrapTruncationWarningLines: bootstrapPromptWarning.lines,
     modelDisplay,
     agentId: sessionAgentId,
+  });
+  const systemPromptReport = buildSystemPromptReport({
+    source: "run",
+    generatedAt: Date.now(),
+    sessionId: params.sessionId,
+    sessionKey: params.sessionKey,
+    provider: params.provider,
+    model: modelId,
+    workspaceDir,
+    bootstrapMaxChars,
+    bootstrapTotalMaxChars,
+    bootstrapTruncation: buildBootstrapTruncationReportMeta({
+      analysis: bootstrapAnalysis,
+      warningMode: bootstrapPromptWarningMode,
+      warning: bootstrapPromptWarning,
+    }),
+    sandbox: { mode: "off", sandboxed: false },
+    systemPrompt,
+    bootstrapFiles,
+    injectedFiles: contextFiles,
+    skillsPrompt: "",
+    tools: [],
   });
 
   const { sessionId: cliSessionIdToSend, isNew } = resolveSessionIdToSend({
@@ -327,6 +383,7 @@ export async function runCliAgent(params: {
       payloads,
       meta: {
         durationMs: Date.now() - started,
+        systemPromptReport,
         agentMeta: {
           sessionId: output.sessionId ?? sessionIdSent ?? params.sessionId ?? "",
           provider: params.provider,
@@ -337,6 +394,35 @@ export async function runCliAgent(params: {
     };
   } catch (err) {
     if (err instanceof FailoverError) {
+      // Check if this is a session expired error and we have a session to clear
+      if (err.reason === "session_expired" && params.cliSessionId && params.sessionKey) {
+        log.warn(
+          `CLI session expired, clearing session ID and retrying: provider=${params.provider} session=${redactRunIdentifier(params.cliSessionId)}`,
+        );
+
+        // Clear the expired session ID from the session entry
+        // This requires access to the session store, which we don't have here
+        // We'll need to modify the caller to handle this case
+
+        // For now, retry without the session ID to create a new session
+        const output = await executeCliWithSession(undefined);
+        const text = output.text?.trim();
+        const payloads = text ? [{ text }] : undefined;
+
+        return {
+          payloads,
+          meta: {
+            durationMs: Date.now() - started,
+            systemPromptReport,
+            agentMeta: {
+              sessionId: output.sessionId ?? params.sessionId ?? "",
+              provider: params.provider,
+              model: modelId,
+              usage: output.usage,
+            },
+          },
+        };
+      }
       throw err;
     }
     const message = err instanceof Error ? err.message : String(err);

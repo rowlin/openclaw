@@ -15,6 +15,7 @@ import { extensionForMime } from "../media/mime.js";
 import type { PollInput } from "../polls.js";
 import { loadWebMediaRaw } from "../web/media.js";
 import { resolveDiscordAccount } from "./accounts.js";
+import { rewriteDiscordKnownMentions } from "./mentions.js";
 import {
   buildDiscordMessagePayload,
   buildDiscordSendError,
@@ -143,6 +144,9 @@ export async function sendMessageDiscord(
   });
   const chunkMode = resolveChunkMode(cfg, "discord", accountInfo.accountId);
   const textWithTables = convertMarkdownTables(text ?? "", tableMode);
+  const textWithMentions = rewriteDiscordKnownMentions(textWithTables, {
+    accountId: accountInfo.accountId,
+  });
   const { token, rest, request } = createDiscordClient(opts, cfg);
   const recipient = await parseAndResolveRecipient(to, opts.accountId);
   const { channelId } = await resolveChannelId(rest, recipient, request);
@@ -152,7 +156,7 @@ export async function sendMessageDiscord(
 
   if (isForumLikeType(channelType)) {
     const threadName = deriveForumThreadName(textWithTables);
-    const chunks = buildDiscordTextChunks(textWithTables, {
+    const chunks = buildDiscordTextChunks(textWithMentions, {
       maxLinesPerMessage: accountInfo.config.maxLinesPerMessage,
       chunkMode,
     });
@@ -262,7 +266,7 @@ export async function sendMessageDiscord(
       result = await sendDiscordMedia(
         rest,
         channelId,
-        textWithTables,
+        textWithMentions,
         opts.mediaUrl,
         opts.mediaLocalRoots,
         opts.replyTo,
@@ -277,7 +281,7 @@ export async function sendMessageDiscord(
       result = await sendDiscordText(
         rest,
         channelId,
-        textWithTables,
+        textWithMentions,
         opts.replyTo,
         request,
         accountInfo.config.maxLinesPerMessage,
@@ -341,6 +345,9 @@ export async function sendWebhookMessageDiscord(
     throw new Error("Discord webhook id/token are required");
   }
 
+  const rewrittenText = rewriteDiscordKnownMentions(text, {
+    accountId: opts.accountId,
+  });
   const replyTo = typeof opts.replyTo === "string" ? opts.replyTo.trim() : "";
   const messageReference = replyTo ? { message_id: replyTo, fail_if_not_exists: false } : undefined;
 
@@ -357,7 +364,7 @@ export async function sendWebhookMessageDiscord(
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        content: text,
+        content: rewrittenText,
         username: opts.username?.trim() || undefined,
         avatar_url: opts.avatarUrl?.trim() || undefined,
         ...(messageReference ? { message_reference: messageReference } : {}),
@@ -405,12 +412,17 @@ export async function sendStickerDiscord(
 ): Promise<DiscordSendResult> {
   const { rest, request, channelId } = await resolveDiscordSendTarget(to, opts);
   const content = opts.content?.trim();
+  const rewrittenContent = content
+    ? rewriteDiscordKnownMentions(content, {
+        accountId: opts.accountId,
+      })
+    : undefined;
   const stickers = normalizeStickerIds(stickerIds);
   const res = (await request(
     () =>
       rest.post(Routes.channelMessages(channelId), {
         body: {
-          content: content || undefined,
+          content: rewrittenContent || undefined,
           sticker_ids: stickers,
         },
       }) as Promise<{ id: string; channel_id: string }>,
@@ -426,6 +438,11 @@ export async function sendPollDiscord(
 ): Promise<DiscordSendResult> {
   const { rest, request, channelId } = await resolveDiscordSendTarget(to, opts);
   const content = opts.content?.trim();
+  const rewrittenContent = content
+    ? rewriteDiscordKnownMentions(content, {
+        accountId: opts.accountId,
+      })
+    : undefined;
   if (poll.durationSeconds !== undefined) {
     throw new Error("Discord polls do not support durationSeconds; use durationHours");
   }
@@ -435,7 +452,7 @@ export async function sendPollDiscord(
     () =>
       rest.post(Routes.channelMessages(channelId), {
         body: {
-          content: content || undefined,
+          content: rewrittenContent || undefined,
           poll: payload,
           ...(flags ? { flags } : {}),
         },
@@ -523,6 +540,7 @@ export async function sendVoiceMessageDiscord(
       opts.replyTo,
       request,
       opts.silent,
+      token,
     );
 
     recordChannelActivity({
