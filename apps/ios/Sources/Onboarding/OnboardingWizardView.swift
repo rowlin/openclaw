@@ -489,7 +489,21 @@ struct OnboardingWizardView: View {
             TextField("Port", text: self.$manualPortText)
                 .keyboardType(.numberPad)
             Toggle("Use TLS", isOn: self.$manualTLS)
-            self.manualConnectButton
+
+            Button {
+                Task { await self.connectManual() }
+            } label: {
+                if self.connectingGatewayID == "manual" {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                        Text("Connecting…")
+                    }
+                } else {
+                    Text("Connect")
+                }
+            }
+            .disabled(!self.canConnectManual || self.connectingGatewayID != nil)
         } header: {
             Text("Developer Local")
         } footer: {
@@ -617,25 +631,22 @@ struct OnboardingWizardView: View {
             TextField("Discovery Domain (optional)", text: self.$discoveryDomain)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-            self.manualConnectButton
-        }
-    }
 
-    private var manualConnectButton: some View {
-        Button {
-            Task { await self.connectManual() }
-        } label: {
-            if self.connectingGatewayID == "manual" {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                    Text("Connecting…")
+            Button {
+                Task { await self.connectManual() }
+            } label: {
+                if self.connectingGatewayID == "manual" {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                        Text("Connecting…")
+                    }
+                } else {
+                    Text("Connect")
                 }
-            } else {
-                Text("Connect")
             }
+            .disabled(!self.canConnectManual || self.connectingGatewayID != nil)
         }
-        .disabled(!self.canConnectManual || self.connectingGatewayID != nil)
     }
 
     private func handleScannedLink(_ link: GatewayConnectDeepLink) {

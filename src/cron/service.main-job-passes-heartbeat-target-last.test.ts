@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { HeartbeatRunResult } from "../infra/heartbeat-wake.js";
 import { CronService } from "./service.js";
 import { setupCronServiceSuite, writeCronStoreSnapshot } from "./service.test-harness.js";
 import type { CronJob } from "./types.js";
@@ -7,75 +8,59 @@ const { logger, makeStorePath } = setupCronServiceSuite({
   prefix: "cron-main-heartbeat-target",
 });
 
-type RunHeartbeatOnce = NonNullable<
-  ConstructorParameters<typeof CronService>[0]["runHeartbeatOnce"]
->;
-
 describe("cron main job passes heartbeat target=last", () => {
-  function createMainCronJob(params: {
-    now: number;
-    id: string;
-    wakeMode: CronJob["wakeMode"];
-  }): CronJob {
-    return {
-      id: params.id,
-      name: params.id,
-      enabled: true,
-      createdAtMs: params.now - 10_000,
-      updatedAtMs: params.now - 10_000,
-      schedule: { kind: "every", everyMs: 60_000 },
-      sessionTarget: "main",
-      wakeMode: params.wakeMode,
-      payload: { kind: "systemEvent", text: "Check in" },
-      state: { nextRunAtMs: params.now - 1 },
-    };
-  }
-
-  function createCronWithSpies(params: { storePath: string; runHeartbeatOnce: RunHeartbeatOnce }) {
-    const enqueueSystemEvent = vi.fn();
-    const requestHeartbeatNow = vi.fn();
-    const cron = new CronService({
-      storePath: params.storePath,
-      cronEnabled: true,
-      log: logger,
-      enqueueSystemEvent,
-      requestHeartbeatNow,
-      runHeartbeatOnce: params.runHeartbeatOnce,
-      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
-    });
-    return { cron, requestHeartbeatNow };
-  }
-
-  async function runSingleTick(cron: CronService) {
-    await cron.start();
-    await vi.advanceTimersByTimeAsync(2_000);
-    await vi.advanceTimersByTimeAsync(1_000);
-    cron.stop();
-  }
-
   it("should pass heartbeat.target=last to runHeartbeatOnce for wakeMode=now main jobs", async () => {
     const { storePath } = await makeStorePath();
     const now = Date.now();
 
-    const job = createMainCronJob({
-      now,
+    const job: CronJob = {
       id: "test-main-delivery",
+      name: "test-main-delivery",
+      enabled: true,
+      createdAtMs: now - 10_000,
+      updatedAtMs: now - 10_000,
+      schedule: { kind: "every", everyMs: 60_000 },
+      sessionTarget: "main",
       wakeMode: "now",
-    });
+      payload: { kind: "systemEvent", text: "Check in" },
+      state: { nextRunAtMs: now - 1 },
+    };
 
     await writeCronStoreSnapshot({ storePath, jobs: [job] });
 
-    const runHeartbeatOnce = vi.fn<RunHeartbeatOnce>(async () => ({
+    const enqueueSystemEvent = vi.fn();
+    const requestHeartbeatNow = vi.fn();
+    const runHeartbeatOnce = vi.fn<
+      (opts?: {
+        reason?: string;
+        agentId?: string;
+        sessionKey?: string;
+        heartbeat?: { target?: string };
+      }) => Promise<HeartbeatRunResult>
+    >(async () => ({
       status: "ran" as const,
       durationMs: 50,
     }));
 
-    const { cron } = createCronWithSpies({
+    const cron = new CronService({
       storePath,
+      cronEnabled: true,
+      log: logger,
+      enqueueSystemEvent,
+      requestHeartbeatNow,
       runHeartbeatOnce,
+      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
     });
 
-    await runSingleTick(cron);
+    await cron.start();
+
+    // Wait for the timer to fire
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // Give the async run a chance to complete
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    cron.stop();
 
     // runHeartbeatOnce should have been called
     expect(runHeartbeatOnce).toHaveBeenCalled();
@@ -92,25 +77,42 @@ describe("cron main job passes heartbeat target=last", () => {
     const { storePath } = await makeStorePath();
     const now = Date.now();
 
-    const job = createMainCronJob({
-      now,
+    const job: CronJob = {
       id: "test-next-heartbeat",
+      name: "test-next-heartbeat",
+      enabled: true,
+      createdAtMs: now - 10_000,
+      updatedAtMs: now - 10_000,
+      schedule: { kind: "every", everyMs: 60_000 },
+      sessionTarget: "main",
       wakeMode: "next-heartbeat",
-    });
+      payload: { kind: "systemEvent", text: "Check in" },
+      state: { nextRunAtMs: now - 1 },
+    };
 
     await writeCronStoreSnapshot({ storePath, jobs: [job] });
 
-    const runHeartbeatOnce = vi.fn<RunHeartbeatOnce>(async () => ({
+    const enqueueSystemEvent = vi.fn();
+    const requestHeartbeatNow = vi.fn();
+    const runHeartbeatOnce = vi.fn(async () => ({
       status: "ran" as const,
       durationMs: 50,
     }));
 
-    const { cron, requestHeartbeatNow } = createCronWithSpies({
+    const cron = new CronService({
       storePath,
+      cronEnabled: true,
+      log: logger,
+      enqueueSystemEvent,
+      requestHeartbeatNow,
       runHeartbeatOnce,
+      runIsolatedAgentJob: vi.fn(async () => ({ status: "ok" as const })),
     });
 
-    await runSingleTick(cron);
+    await cron.start();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+    cron.stop();
 
     // wakeMode=next-heartbeat uses requestHeartbeatNow, not runHeartbeatOnce
     expect(requestHeartbeatNow).toHaveBeenCalled();

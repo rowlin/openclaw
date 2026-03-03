@@ -10,8 +10,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 
-class MotionHandlerTest : NodeHandlerRobolectricTest() {
+@RunWith(RobolectricTestRunner::class)
+class MotionHandlerTest {
   @Test
   fun handleMotionActivity_requiresPermission() =
     runTest {
@@ -82,6 +86,8 @@ class MotionHandlerTest : NodeHandlerRobolectricTest() {
       assertEquals("MOTION_UNAVAILABLE", result.error?.code)
       assertTrue(result.error?.message?.contains("PEDOMETER_RANGE_UNAVAILABLE") == true)
     }
+
+  private fun appContext(): Context = RuntimeEnvironment.getApplication()
 }
 
 private class FakeMotionDataSource(

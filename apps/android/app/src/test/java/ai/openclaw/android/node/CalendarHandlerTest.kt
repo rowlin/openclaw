@@ -9,8 +9,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 
-class CalendarHandlerTest : NodeHandlerRobolectricTest() {
+@RunWith(RobolectricTestRunner::class)
+class CalendarHandlerTest {
   @Test
   fun handleCalendarEvents_requiresPermission() {
     val handler = CalendarHandler.forTesting(appContext(), FakeCalendarDataSource(canRead = false))
@@ -79,6 +83,8 @@ class CalendarHandlerTest : NodeHandlerRobolectricTest() {
     assertFalse(result.ok)
     assertEquals("CALENDAR_NOT_FOUND", result.error?.code)
   }
+
+  private fun appContext(): Context = RuntimeEnvironment.getApplication()
 }
 
 private class FakeCalendarDataSource(

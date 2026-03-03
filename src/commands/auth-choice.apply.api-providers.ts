@@ -4,7 +4,8 @@ import { normalizeApiKeyInput, validateApiKeyInput } from "./auth-choice.api-key
 import {
   normalizeSecretInputModeInput,
   createAuthChoiceAgentModelNoter,
-  createAuthChoiceDefaultModelApplierForMutableState,
+  createAuthChoiceDefaultModelApplier,
+  createAuthChoiceModelStateBridge,
   ensureApiKeyFromOptionEnvOrPrompt,
   normalizeTokenProviderInput,
 } from "./auth-choice.apply-helpers.js";
@@ -316,12 +317,14 @@ export async function applyAuthChoiceApiProviders(
   let nextConfig = params.config;
   let agentModelOverride: string | undefined;
   const noteAgentModel = createAuthChoiceAgentModelNoter(params);
-  const applyProviderDefaultModel = createAuthChoiceDefaultModelApplierForMutableState(
+  const applyProviderDefaultModel = createAuthChoiceDefaultModelApplier(
     params,
-    () => nextConfig,
-    (config) => (nextConfig = config),
-    () => agentModelOverride,
-    (model) => (agentModelOverride = model),
+    createAuthChoiceModelStateBridge({
+      getConfig: () => nextConfig,
+      setConfig: (config) => (nextConfig = config),
+      getAgentModelOverride: () => agentModelOverride,
+      setAgentModelOverride: (model) => (agentModelOverride = model),
+    }),
   );
 
   let authChoice = params.authChoice;

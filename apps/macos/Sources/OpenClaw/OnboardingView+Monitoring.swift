@@ -17,9 +17,14 @@ extension OnboardingView {
     }
 
     func updatePermissionMonitoring(for pageIndex: Int) {
-        PermissionMonitoringSupport.setMonitoring(
-            pageIndex == self.permissionsPageIndex,
-            monitoring: &self.monitoringPermissions)
+        let shouldMonitor = pageIndex == self.permissionsPageIndex
+        if shouldMonitor, !self.monitoringPermissions {
+            self.monitoringPermissions = true
+            PermissionMonitor.shared.register()
+        } else if !shouldMonitor, self.monitoringPermissions {
+            self.monitoringPermissions = false
+            PermissionMonitor.shared.unregister()
+        }
     }
 
     func updateDiscoveryMonitoring(for pageIndex: Int) {
@@ -46,7 +51,9 @@ extension OnboardingView {
     }
 
     func stopPermissionMonitoring() {
-        PermissionMonitoringSupport.stopMonitoring(&self.monitoringPermissions)
+        guard self.monitoringPermissions else { return }
+        self.monitoringPermissions = false
+        PermissionMonitor.shared.unregister()
     }
 
     func stopDiscovery() {

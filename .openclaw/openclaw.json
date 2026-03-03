@@ -1,0 +1,30 @@
+{
+  "identity": {
+    "name": "Clawd",
+    "theme": "helpful assistant",
+    "emoji": "🦞"
+  },
+  "agent": {
+    "workspace": ["~./.Vault", "~/.openclaw/workspace"],
+    "userTimezone": "Europe/Tallinn",
+    "timeFormat": "24",
+    "model": { "primary": "anthropic/claude-sonnet-4-5" }
+  },
+  "browser": {
+    "enabled": true,
+    "remoteCdpTimeoutMs": 5000,
+    "defaultProfile": "docker",
+    "profiles": {
+      "docker": {
+        "cdpUrl": "http://browserless:3000",
+        "color": "#00AA00"
+      }
+    }
+  },
+  "channels": {
+    "whatsapp": {
+      "allowFrom": ["+15555550123"],
+      "groups": { "*": { "requireMention": true } }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { typedCases } from "../../test-utils/typed-cases.js";
@@ -41,24 +41,13 @@ import { runResolveOutboundTargetCoreTests } from "./targets.shared-test.js";
 
 describe("delivery-queue", () => {
   let tmpDir: string;
-  let fixtureRoot = "";
-  let fixtureCount = 0;
-
-  beforeAll(() => {
-    fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-dq-suite-"));
-  });
 
   beforeEach(() => {
-    tmpDir = path.join(fixtureRoot, `case-${fixtureCount++}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-dq-test-"));
   });
 
-  afterAll(() => {
-    if (!fixtureRoot) {
-      return;
-    }
-    fs.rmSync(fixtureRoot, { recursive: true, force: true });
-    fixtureRoot = "";
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   describe("enqueue + ack lifecycle", () => {
@@ -902,7 +891,6 @@ describe("resolveOutboundSessionRoute", () => {
       channel: string;
       target: string;
       replyToId?: string;
-      threadId?: string;
       expected: {
         sessionKey: string;
         from?: string;
@@ -937,39 +925,12 @@ describe("resolveOutboundSessionRoute", () => {
         },
       },
       {
-        name: "Telegram DM with topic",
-        cfg: perChannelPeerCfg,
-        channel: "telegram",
-        target: "123456789:topic:99",
-        expected: {
-          sessionKey: "agent:main:telegram:direct:123456789:thread:99",
-          from: "telegram:123456789:topic:99",
-          to: "telegram:123456789",
-          threadId: 99,
-          chatType: "direct",
-        },
-      },
-      {
         name: "Telegram unresolved username DM",
         cfg: perChannelPeerCfg,
         channel: "telegram",
         target: "@alice",
         expected: {
           sessionKey: "agent:main:telegram:direct:@alice",
-          chatType: "direct",
-        },
-      },
-      {
-        name: "Telegram DM scoped threadId fallback",
-        cfg: perChannelPeerCfg,
-        channel: "telegram",
-        target: "12345",
-        threadId: "12345:99",
-        expected: {
-          sessionKey: "agent:main:telegram:direct:12345:thread:99",
-          from: "telegram:12345:topic:99",
-          to: "telegram:12345",
-          threadId: 99,
           chatType: "direct",
         },
       },
@@ -1057,7 +1018,6 @@ describe("resolveOutboundSessionRoute", () => {
         agentId: "main",
         target: testCase.target,
         replyToId: testCase.replyToId,
-        threadId: testCase.threadId,
       });
       expect(route?.sessionKey, testCase.name).toBe(testCase.expected.sessionKey);
       if (testCase.expected.from !== undefined) {

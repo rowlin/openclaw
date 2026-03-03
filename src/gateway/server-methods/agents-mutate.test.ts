@@ -201,20 +201,6 @@ function expectNotFoundResponseAndNoWrite(respond: ReturnType<typeof vi.fn>) {
   expect(mocks.writeConfigFile).not.toHaveBeenCalled();
 }
 
-async function expectUnsafeWorkspaceFile(method: "agents.files.get" | "agents.files.set") {
-  const params =
-    method === "agents.files.set"
-      ? { agentId: "main", name: "AGENTS.md", content: "x" }
-      : { agentId: "main", name: "AGENTS.md" };
-  const { respond, promise } = makeCall(method, params);
-  await promise;
-  expect(respond).toHaveBeenCalledWith(
-    false,
-    undefined,
-    expect.objectContaining({ message: expect.stringContaining("unsafe workspace file") }),
-  );
-}
-
 beforeEach(() => {
   mocks.fsReadFile.mockImplementation(async () => {
     throw createEnoentError();
@@ -231,7 +217,6 @@ beforeEach(() => {
       ({
         stat: async () => makeFileStat(),
         readFile: async () => Buffer.from(""),
-        truncate: async () => {},
         writeFile: async () => {},
         close: async () => {},
       }) as unknown,
@@ -531,7 +516,7 @@ describe("agents.files.get/set symlink safety", () => {
     mocks.fsMkdir.mockResolvedValue(undefined);
   });
 
-  function mockWorkspaceEscapeSymlink() {
+  it("rejects agents.files.get when allowlisted file symlink escapes workspace", async () => {
     const workspace = "/workspace/test-agent";
     const candidate = path.resolve(workspace, "AGENTS.md");
     mocks.fsRealpath.mockImplementation(async (p: string) => {
@@ -550,21 +535,54 @@ describe("agents.files.get/set symlink safety", () => {
       }
       throw createEnoentError();
     });
-  }
 
-  it.each([
-    { method: "agents.files.get" as const, expectNoOpen: false },
-    { method: "agents.files.set" as const, expectNoOpen: true },
-  ])(
-    "rejects $method when allowlisted file symlink escapes workspace",
-    async ({ method, expectNoOpen }) => {
-      mockWorkspaceEscapeSymlink();
-      await expectUnsafeWorkspaceFile(method);
-      if (expectNoOpen) {
-        expect(mocks.fsOpen).not.toHaveBeenCalled();
+    const { respond, promise } = makeCall("agents.files.get", {
+      agentId: "main",
+      name: "AGENTS.md",
+    });
+    await promise;
+
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ message: expect.stringContaining("unsafe workspace file") }),
+    );
+  });
+
+  it("rejects agents.files.set when allowlisted file symlink escapes workspace", async () => {
+    const workspace = "/workspace/test-agent";
+    const candidate = path.resolve(workspace, "AGENTS.md");
+    mocks.fsRealpath.mockImplementation(async (p: string) => {
+      if (p === workspace) {
+        return workspace;
       }
-    },
-  );
+      if (p === candidate) {
+        return "/outside/secret.txt";
+      }
+      return p;
+    });
+    mocks.fsLstat.mockImplementation(async (...args: unknown[]) => {
+      const p = typeof args[0] === "string" ? args[0] : "";
+      if (p === candidate) {
+        return makeSymlinkStat();
+      }
+      throw createEnoentError();
+    });
+
+    const { respond, promise } = makeCall("agents.files.set", {
+      agentId: "main",
+      name: "AGENTS.md",
+      content: "x",
+    });
+    await promise;
+
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ message: expect.stringContaining("unsafe workspace file") }),
+    );
+    expect(mocks.fsOpen).not.toHaveBeenCalled();
+  });
 
   it("allows in-workspace symlink targets for get/set", async () => {
     const workspace = "/workspace/test-agent";
@@ -603,7 +621,6 @@ describe("agents.files.get/set symlink safety", () => {
         ({
           stat: async () => targetStat,
           readFile: async () => Buffer.from("inside\n"),
-          truncate: async () => {},
           writeFile: async () => {},
           close: async () => {},
         }) as unknown,
@@ -635,7 +652,7 @@ describe("agents.files.get/set symlink safety", () => {
     );
   });
 
-  function mockHardlinkedWorkspaceAlias() {
+  it("rejects agents.files.get when allowlisted file is a hardlinked alias", async () => {
     const workspace = "/workspace/test-agent";
     const candidate = path.resolve(workspace, "AGENTS.md");
     mocks.fsRealpath.mockImplementation(async (p: string) => {
@@ -651,19 +668,49 @@ describe("agents.files.get/set symlink safety", () => {
       }
       throw createEnoentError();
     });
-  }
 
-  it.each([
-    { method: "agents.files.get" as const, expectNoOpen: false },
-    { method: "agents.files.set" as const, expectNoOpen: true },
-  ])(
-    "rejects $method when allowlisted file is a hardlinked alias",
-    async ({ method, expectNoOpen }) => {
-      mockHardlinkedWorkspaceAlias();
-      await expectUnsafeWorkspaceFile(method);
-      if (expectNoOpen) {
-        expect(mocks.fsOpen).not.toHaveBeenCalled();
+    const { respond, promise } = makeCall("agents.files.get", {
+      agentId: "main",
+      name: "AGENTS.md",
+    });
+    await promise;
+
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ message: expect.stringContaining("unsafe workspace file") }),
+    );
+  });
+
+  it("rejects agents.files.set when allowlisted file is a hardlinked alias", async () => {
+    const workspace = "/workspace/test-agent";
+    const candidate = path.resolve(workspace, "AGENTS.md");
+    mocks.fsRealpath.mockImplementation(async (p: string) => {
+      if (p === workspace) {
+        return workspace;
       }
-    },
-  );
+      return p;
+    });
+    mocks.fsLstat.mockImplementation(async (...args: unknown[]) => {
+      const p = typeof args[0] === "string" ? args[0] : "";
+      if (p === candidate) {
+        return makeFileStat({ nlink: 2 });
+      }
+      throw createEnoentError();
+    });
+
+    const { respond, promise } = makeCall("agents.files.set", {
+      agentId: "main",
+      name: "AGENTS.md",
+      content: "x",
+    });
+    await promise;
+
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({ message: expect.stringContaining("unsafe workspace file") }),
+    );
+    expect(mocks.fsOpen).not.toHaveBeenCalled();
+  });
 });

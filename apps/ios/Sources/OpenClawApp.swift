@@ -456,7 +456,11 @@ enum WatchPromptNotificationBridge {
     ) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             center.add(request) { error in
-                ThrowingContinuationSupport.resumeVoid(continuation, error: error)
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
             }
         }
     }

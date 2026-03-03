@@ -26,36 +26,6 @@ async function withStateDir<T>(stateDir: string, fn: () => Promise<T>) {
   );
 }
 
-async function discoverWithStateDir(
-  stateDir: string,
-  params: Parameters<typeof discoverOpenClawPlugins>[0],
-) {
-  return await withStateDir(stateDir, async () => {
-    return discoverOpenClawPlugins(params);
-  });
-}
-
-function writePluginPackageManifest(params: {
-  packageDir: string;
-  packageName: string;
-  extensions: string[];
-}) {
-  fs.writeFileSync(
-    path.join(params.packageDir, "package.json"),
-    JSON.stringify({
-      name: params.packageName,
-      openclaw: { extensions: params.extensions },
-    }),
-    "utf-8",
-  );
-}
-
-function expectEscapesPackageDiagnostic(diagnostics: Array<{ message: string }>) {
-  expect(diagnostics.some((entry) => entry.message.includes("escapes package directory"))).toBe(
-    true,
-  );
-}
-
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     try {
@@ -125,11 +95,14 @@ describe("discoverOpenClawPlugins", () => {
     const globalExt = path.join(stateDir, "extensions", "pack");
     fs.mkdirSync(path.join(globalExt, "src"), { recursive: true });
 
-    writePluginPackageManifest({
-      packageDir: globalExt,
-      packageName: "pack",
-      extensions: ["./src/one.ts", "./src/two.ts"],
-    });
+    fs.writeFileSync(
+      path.join(globalExt, "package.json"),
+      JSON.stringify({
+        name: "pack",
+        openclaw: { extensions: ["./src/one.ts", "./src/two.ts"] },
+      }),
+      "utf-8",
+    );
     fs.writeFileSync(
       path.join(globalExt, "src", "one.ts"),
       "export default function () {}",
@@ -155,11 +128,14 @@ describe("discoverOpenClawPlugins", () => {
     const globalExt = path.join(stateDir, "extensions", "voice-call-pack");
     fs.mkdirSync(path.join(globalExt, "src"), { recursive: true });
 
-    writePluginPackageManifest({
-      packageDir: globalExt,
-      packageName: "@openclaw/voice-call",
-      extensions: ["./src/index.ts"],
-    });
+    fs.writeFileSync(
+      path.join(globalExt, "package.json"),
+      JSON.stringify({
+        name: "@openclaw/voice-call",
+        openclaw: { extensions: ["./src/index.ts"] },
+      }),
+      "utf-8",
+    );
     fs.writeFileSync(
       path.join(globalExt, "src", "index.ts"),
       "export default function () {}",
@@ -179,11 +155,14 @@ describe("discoverOpenClawPlugins", () => {
     const packDir = path.join(stateDir, "packs", "demo-plugin-dir");
     fs.mkdirSync(packDir, { recursive: true });
 
-    writePluginPackageManifest({
-      packageDir: packDir,
-      packageName: "@openclaw/demo-plugin-dir",
-      extensions: ["./index.js"],
-    });
+    fs.writeFileSync(
+      path.join(packDir, "package.json"),
+      JSON.stringify({
+        name: "@openclaw/demo-plugin-dir",
+        openclaw: { extensions: ["./index.js"] },
+      }),
+      "utf-8",
+    );
     fs.writeFileSync(path.join(packDir, "index.js"), "module.exports = {}", "utf-8");
 
     const { candidates } = await withStateDir(stateDir, async () => {
@@ -199,17 +178,24 @@ describe("discoverOpenClawPlugins", () => {
     const outside = path.join(stateDir, "outside.js");
     fs.mkdirSync(globalExt, { recursive: true });
 
-    writePluginPackageManifest({
-      packageDir: globalExt,
-      packageName: "@openclaw/escape-pack",
-      extensions: ["../../outside.js"],
-    });
+    fs.writeFileSync(
+      path.join(globalExt, "package.json"),
+      JSON.stringify({
+        name: "@openclaw/escape-pack",
+        openclaw: { extensions: ["../../outside.js"] },
+      }),
+      "utf-8",
+    );
     fs.writeFileSync(outside, "export default function () {}", "utf-8");
 
-    const result = await discoverWithStateDir(stateDir, {});
+    const result = await withStateDir(stateDir, async () => {
+      return discoverOpenClawPlugins({});
+    });
 
     expect(result.candidates).toHaveLength(0);
-    expectEscapesPackageDiagnostic(result.diagnostics);
+    expect(
+      result.diagnostics.some((diag) => diag.message.includes("escapes package directory")),
+    ).toBe(true);
   });
 
   it("rejects package extension entries that escape via symlink", async () => {
@@ -226,16 +212,23 @@ describe("discoverOpenClawPlugins", () => {
       return;
     }
 
-    writePluginPackageManifest({
-      packageDir: globalExt,
-      packageName: "@openclaw/pack",
-      extensions: ["./linked/escape.ts"],
+    fs.writeFileSync(
+      path.join(globalExt, "package.json"),
+      JSON.stringify({
+        name: "@openclaw/pack",
+        openclaw: { extensions: ["./linked/escape.ts"] },
+      }),
+      "utf-8",
+    );
+
+    const { candidates, diagnostics } = await withStateDir(stateDir, async () => {
+      return discoverOpenClawPlugins({});
     });
 
-    const { candidates, diagnostics } = await discoverWithStateDir(stateDir, {});
-
     expect(candidates.some((candidate) => candidate.idHint === "pack")).toBe(false);
-    expectEscapesPackageDiagnostic(diagnostics);
+    expect(diagnostics.some((entry) => entry.message.includes("escapes package directory"))).toBe(
+      true,
+    );
   });
 
   it("rejects package extension entries that are hardlinked aliases", async () => {
@@ -259,18 +252,23 @@ describe("discoverOpenClawPlugins", () => {
       throw err;
     }
 
-    writePluginPackageManifest({
-      packageDir: globalExt,
-      packageName: "@openclaw/pack",
-      extensions: ["./escape.ts"],
-    });
+    fs.writeFileSync(
+      path.join(globalExt, "package.json"),
+      JSON.stringify({
+        name: "@openclaw/pack",
+        openclaw: { extensions: ["./escape.ts"] },
+      }),
+      "utf-8",
+    );
 
     const { candidates, diagnostics } = await withStateDir(stateDir, async () => {
       return discoverOpenClawPlugins({});
     });
 
     expect(candidates.some((candidate) => candidate.idHint === "pack")).toBe(false);
-    expectEscapesPackageDiagnostic(diagnostics);
+    expect(diagnostics.some((entry) => entry.message.includes("escapes package directory"))).toBe(
+      true,
+    );
   });
 
   it("ignores package manifests that are hardlinked aliases", async () => {
@@ -343,10 +341,9 @@ describe("discoverOpenClawPlugins", () => {
       const result = await withStateDir(stateDir, async () => {
         return discoverOpenClawPlugins({ ownershipUid: actualUid + 1 });
       });
-      const shouldBlockForMismatch = actualUid !== 0;
-      expect(result.candidates).toHaveLength(shouldBlockForMismatch ? 0 : 1);
+      expect(result.candidates).toHaveLength(0);
       expect(result.diagnostics.some((diag) => diag.message.includes("suspicious ownership"))).toBe(
-        shouldBlockForMismatch,
+        true,
       );
     },
   );

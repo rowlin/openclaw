@@ -142,7 +142,13 @@ export function resolveThreadBindingIdleTimeoutMsForChannel(params: {
   channel: string;
   accountId?: string;
 }): number {
-  const { root, account } = resolveThreadBindingChannelScope(params);
+  const channel = normalizeChannelId(params.channel);
+  const accountId = normalizeAccountId(params.accountId);
+  const { root, account } = resolveChannelThreadBindings({
+    cfg: params.cfg,
+    channel,
+    accountId,
+  });
   return resolveThreadBindingIdleTimeoutMs({
     channelIdleHoursRaw: account?.idleHours ?? root?.idleHours,
     sessionIdleHoursRaw: params.cfg.session?.threadBindings?.idleHours,
@@ -154,24 +160,16 @@ export function resolveThreadBindingMaxAgeMsForChannel(params: {
   channel: string;
   accountId?: string;
 }): number {
-  const { root, account } = resolveThreadBindingChannelScope(params);
-  return resolveThreadBindingMaxAgeMs({
-    channelMaxAgeHoursRaw: account?.maxAgeHours ?? root?.maxAgeHours,
-    sessionMaxAgeHoursRaw: params.cfg.session?.threadBindings?.maxAgeHours,
-  });
-}
-
-function resolveThreadBindingChannelScope(params: {
-  cfg: OpenClawConfig;
-  channel: string;
-  accountId?: string;
-}) {
   const channel = normalizeChannelId(params.channel);
   const accountId = normalizeAccountId(params.accountId);
-  return resolveChannelThreadBindings({
+  const { root, account } = resolveChannelThreadBindings({
     cfg: params.cfg,
     channel,
     accountId,
+  });
+  return resolveThreadBindingMaxAgeMs({
+    channelMaxAgeHoursRaw: account?.maxAgeHours ?? root?.maxAgeHours,
+    sessionMaxAgeHoursRaw: params.cfg.session?.threadBindings?.maxAgeHours,
   });
 }
 

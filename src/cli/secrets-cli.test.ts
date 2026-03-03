@@ -29,7 +29,7 @@ vi.mock("../secrets/audit.js", () => ({
 }));
 
 vi.mock("../secrets/configure.js", () => ({
-  runSecretsConfigureInteractive: (options: unknown) => runSecretsConfigureInteractive(options),
+  runSecretsConfigureInteractive: () => runSecretsConfigureInteractive(),
 }));
 
 vi.mock("../secrets/apply.js", () => ({
@@ -154,32 +154,5 @@ describe("secrets CLI", () => {
       }),
     );
     expect(runtimeLogs.at(-1)).toContain("Secrets applied");
-  });
-
-  it("forwards --agent to secrets configure", async () => {
-    runSecretsConfigureInteractive.mockResolvedValue({
-      plan: {
-        version: 1,
-        protocolVersion: 1,
-        generatedAt: "2026-02-26T00:00:00.000Z",
-        generatedBy: "openclaw secrets configure",
-        targets: [],
-      },
-      preflight: {
-        mode: "dry-run",
-        changed: false,
-        changedFiles: [],
-        warningCount: 0,
-        warnings: [],
-      },
-    });
-    confirm.mockResolvedValue(false);
-
-    await createProgram().parseAsync(["secrets", "configure", "--agent", "ops"], { from: "user" });
-    expect(runSecretsConfigureInteractive).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentId: "ops",
-      }),
-    );
   });
 });

@@ -6,15 +6,15 @@ import {
   getAcpRuntimeBackend,
   requireAcpRuntimeBackend,
 } from "../../../src/acp/runtime/registry.js";
-import { ACPX_BUNDLED_BIN, ACPX_PINNED_VERSION } from "./config.js";
+import { ACPX_BUNDLED_BIN } from "./config.js";
 import { createAcpxRuntimeService } from "./service.js";
 
-const { ensureAcpxSpy } = vi.hoisted(() => ({
-  ensureAcpxSpy: vi.fn(async () => {}),
+const { ensurePinnedAcpxSpy } = vi.hoisted(() => ({
+  ensurePinnedAcpxSpy: vi.fn(async () => {}),
 }));
 
 vi.mock("./ensure.js", () => ({
-  ensureAcpx: ensureAcpxSpy,
+  ensurePinnedAcpx: ensurePinnedAcpxSpy,
 }));
 
 type RuntimeStub = AcpRuntime & {
@@ -73,8 +73,8 @@ function createServiceContext(
 describe("createAcpxRuntimeService", () => {
   beforeEach(() => {
     __testing.resetAcpRuntimeBackendsForTests();
-    ensureAcpxSpy.mockReset();
-    ensureAcpxSpy.mockImplementation(async () => {});
+    ensurePinnedAcpxSpy.mockReset();
+    ensurePinnedAcpxSpy.mockImplementation(async () => {});
   });
 
   it("registers and unregisters the acpx backend", async () => {
@@ -88,7 +88,7 @@ describe("createAcpxRuntimeService", () => {
     expect(getAcpRuntimeBackend("acpx")?.runtime).toBe(runtime);
 
     await vi.waitFor(() => {
-      expect(ensureAcpxSpy).toHaveBeenCalledOnce();
+      expect(ensurePinnedAcpxSpy).toHaveBeenCalledOnce();
       expect(probeAvailabilitySpy).toHaveBeenCalledOnce();
     });
 
@@ -132,8 +132,6 @@ describe("createAcpxRuntimeService", () => {
         queueOwnerTtlSeconds: 0.25,
         pluginConfig: expect.objectContaining({
           command: ACPX_BUNDLED_BIN,
-          expectedVersion: ACPX_PINNED_VERSION,
-          allowPluginLocalInstall: true,
         }),
       }),
     );
@@ -158,7 +156,7 @@ describe("createAcpxRuntimeService", () => {
 
   it("does not block startup while acpx ensure runs", async () => {
     const { runtime } = createRuntimeStub(true);
-    ensureAcpxSpy.mockImplementation(() => new Promise<void>(() => {}));
+    ensurePinnedAcpxSpy.mockImplementation(() => new Promise<void>(() => {}));
     const service = createAcpxRuntimeService({
       runtimeFactory: () => runtime,
     });

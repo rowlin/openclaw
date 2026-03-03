@@ -1,13 +1,11 @@
 export type SecurityPathCanonicalization = {
   canonicalPath: string;
   candidates: string[];
-  decodePasses: number;
-  decodePassLimitReached: boolean;
   malformedEncoding: boolean;
   rawNormalizedPath: string;
 };
 
-const MAX_PATH_DECODE_PASSES = 32;
+const MAX_PATH_DECODE_PASSES = 3;
 
 function normalizePathSeparators(pathname: string): string {
   const collapsed = pathname.replace(/\/{2,}/g, "/");
@@ -45,19 +43,13 @@ function pushNormalizedCandidate(candidates: string[], seen: Set<string>, value:
 export function buildCanonicalPathCandidates(
   pathname: string,
   maxDecodePasses = MAX_PATH_DECODE_PASSES,
-): {
-  candidates: string[];
-  decodePasses: number;
-  decodePassLimitReached: boolean;
-  malformedEncoding: boolean;
-} {
+): { candidates: string[]; malformedEncoding: boolean } {
   const candidates: string[] = [];
   const seen = new Set<string>();
   pushNormalizedCandidate(candidates, seen, pathname);
 
   let decoded = pathname;
   let malformedEncoding = false;
-  let decodePasses = 0;
   for (let pass = 0; pass < maxDecodePasses; pass++) {
     let nextDecoded = decoded;
     try {
@@ -69,24 +61,10 @@ export function buildCanonicalPathCandidates(
     if (nextDecoded === decoded) {
       break;
     }
-    decodePasses += 1;
     decoded = nextDecoded;
     pushNormalizedCandidate(candidates, seen, decoded);
   }
-  let decodePassLimitReached = false;
-  if (!malformedEncoding) {
-    try {
-      decodePassLimitReached = decodeURIComponent(decoded) !== decoded;
-    } catch {
-      malformedEncoding = true;
-    }
-  }
-  return {
-    candidates,
-    decodePasses,
-    decodePassLimitReached,
-    malformedEncoding,
-  };
+  return { candidates, malformedEncoding };
 }
 
 export function canonicalizePathVariant(pathname: string): string {
@@ -104,22 +82,14 @@ function prefixMatch(pathname: string, prefix: string): boolean {
 }
 
 export function canonicalizePathForSecurity(pathname: string): SecurityPathCanonicalization {
-  const { candidates, decodePasses, decodePassLimitReached, malformedEncoding } =
-    buildCanonicalPathCandidates(pathname);
+  const { candidates, malformedEncoding } = buildCanonicalPathCandidates(pathname);
 
   return {
     canonicalPath: candidates[candidates.length - 1] ?? "/",
     candidates,
-    decodePasses,
-    decodePassLimitReached,
     malformedEncoding,
     rawNormalizedPath: normalizePathSeparators(pathname.toLowerCase()) || "/",
   };
-}
-
-export function hasSecurityPathCanonicalizationAnomaly(pathname: string): boolean {
-  const canonical = canonicalizePathForSecurity(pathname);
-  return canonical.malformedEncoding || canonical.decodePassLimitReached;
 }
 
 const normalizedPrefixesCache = new WeakMap<readonly string[], readonly string[]>();
@@ -142,10 +112,6 @@ export function isPathProtectedByPrefixes(pathname: string, prefixes: readonly s
       normalizedPrefixes.some((prefix) => prefixMatch(candidate, prefix)),
     )
   ) {
-    return true;
-  }
-  // Fail closed when canonicalization depth cannot be fully resolved.
-  if (canonical.decodePassLimitReached) {
     return true;
   }
   if (!canonical.malformedEncoding) {

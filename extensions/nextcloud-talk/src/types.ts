@@ -3,7 +3,6 @@ import type {
   DmConfig,
   DmPolicy,
   GroupPolicy,
-  SecretInput,
 } from "openclaw/plugin-sdk";
 
 export type { DmPolicy, GroupPolicy };
@@ -30,13 +29,13 @@ export type NextcloudTalkAccountConfig = {
   /** Base URL of the Nextcloud instance (e.g., "https://cloud.example.com"). */
   baseUrl?: string;
   /** Bot shared secret from occ talk:bot:install output. */
-  botSecret?: SecretInput;
+  botSecret?: string;
   /** Path to file containing bot secret (for secret managers). */
   botSecretFile?: string;
   /** Optional API user for room lookups (DM detection). */
   apiUser?: string;
   /** Optional API password/app password for room lookups. */
-  apiPassword?: SecretInput;
+  apiPassword?: string;
   /** Path to file containing API password/app password. */
   apiPasswordFile?: string;
   /** Direct message policy (default: pairing). */
@@ -80,8 +79,6 @@ export type NextcloudTalkAccountConfig = {
 export type NextcloudTalkConfig = {
   /** Optional per-account Nextcloud Talk configuration (multi-account). */
   accounts?: Record<string, NextcloudTalkAccountConfig>;
-  /** Optional default account id when multiple accounts are configured. */
-  defaultAccount?: string;
 } & NextcloudTalkAccountConfig;
 
 export type CoreConfig = {

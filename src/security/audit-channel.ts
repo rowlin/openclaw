@@ -39,24 +39,6 @@ function addDiscordNameBasedEntries(params: {
   }
 }
 
-function collectInvalidTelegramAllowFromEntries(params: {
-  entries: unknown;
-  target: Set<string>;
-}): void {
-  if (!Array.isArray(params.entries)) {
-    return;
-  }
-  for (const entry of params.entries) {
-    const normalized = normalizeTelegramAllowFromEntry(entry);
-    if (!normalized || normalized === "*") {
-      continue;
-    }
-    if (!isNumericTelegramUserId(normalized)) {
-      params.target.add(normalized);
-    }
-  }
-}
-
 function classifyChannelWarningSeverity(message: string): SecurityAuditSeverity {
   const s = message.toLowerCase();
   if (
@@ -549,23 +531,38 @@ export async function collectChannelSecurityFindings(params: {
       ).catch(() => []);
       const storeHasWildcard = storeAllowFrom.some((v) => String(v).trim() === "*");
       const invalidTelegramAllowFromEntries = new Set<string>();
-      collectInvalidTelegramAllowFromEntries({
-        entries: storeAllowFrom,
-        target: invalidTelegramAllowFromEntries,
-      });
+      for (const entry of storeAllowFrom) {
+        const normalized = normalizeTelegramAllowFromEntry(entry);
+        if (!normalized || normalized === "*") {
+          continue;
+        }
+        if (!isNumericTelegramUserId(normalized)) {
+          invalidTelegramAllowFromEntries.add(normalized);
+        }
+      }
       const groupAllowFrom = Array.isArray(telegramCfg.groupAllowFrom)
         ? telegramCfg.groupAllowFrom
         : [];
       const groupAllowFromHasWildcard = groupAllowFrom.some((v) => String(v).trim() === "*");
-      collectInvalidTelegramAllowFromEntries({
-        entries: groupAllowFrom,
-        target: invalidTelegramAllowFromEntries,
-      });
+      for (const entry of groupAllowFrom) {
+        const normalized = normalizeTelegramAllowFromEntry(entry);
+        if (!normalized || normalized === "*") {
+          continue;
+        }
+        if (!isNumericTelegramUserId(normalized)) {
+          invalidTelegramAllowFromEntries.add(normalized);
+        }
+      }
       const dmAllowFrom = Array.isArray(telegramCfg.allowFrom) ? telegramCfg.allowFrom : [];
-      collectInvalidTelegramAllowFromEntries({
-        entries: dmAllowFrom,
-        target: invalidTelegramAllowFromEntries,
-      });
+      for (const entry of dmAllowFrom) {
+        const normalized = normalizeTelegramAllowFromEntry(entry);
+        if (!normalized || normalized === "*") {
+          continue;
+        }
+        if (!isNumericTelegramUserId(normalized)) {
+          invalidTelegramAllowFromEntries.add(normalized);
+        }
+      }
       const anyGroupOverride = Boolean(
         groups &&
         Object.values(groups).some((value) => {
@@ -575,10 +572,15 @@ export async function collectChannelSecurityFindings(params: {
           const group = value as Record<string, unknown>;
           const allowFrom = Array.isArray(group.allowFrom) ? group.allowFrom : [];
           if (allowFrom.length > 0) {
-            collectInvalidTelegramAllowFromEntries({
-              entries: allowFrom,
-              target: invalidTelegramAllowFromEntries,
-            });
+            for (const entry of allowFrom) {
+              const normalized = normalizeTelegramAllowFromEntry(entry);
+              if (!normalized || normalized === "*") {
+                continue;
+              }
+              if (!isNumericTelegramUserId(normalized)) {
+                invalidTelegramAllowFromEntries.add(normalized);
+              }
+            }
             return true;
           }
           const topics = group.topics;
@@ -591,10 +593,15 @@ export async function collectChannelSecurityFindings(params: {
             }
             const topic = topicValue as Record<string, unknown>;
             const topicAllow = Array.isArray(topic.allowFrom) ? topic.allowFrom : [];
-            collectInvalidTelegramAllowFromEntries({
-              entries: topicAllow,
-              target: invalidTelegramAllowFromEntries,
-            });
+            for (const entry of topicAllow) {
+              const normalized = normalizeTelegramAllowFromEntry(entry);
+              if (!normalized || normalized === "*") {
+                continue;
+              }
+              if (!isNumericTelegramUserId(normalized)) {
+                invalidTelegramAllowFromEntries.add(normalized);
+              }
+            }
             return topicAllow.length > 0;
           });
         }),

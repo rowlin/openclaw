@@ -1,12 +1,12 @@
 ---
 name: acp-router
-description: Route plain-language requests for Pi, Claude Code, Codex, OpenCode, Gemini CLI, or ACP harness work into either OpenClaw ACP runtime sessions or direct acpx-driven sessions ("telephone game" flow). For coding-agent thread requests, read this skill first, then use only `sessions_spawn` for thread creation.
+description: Route plain-language requests for Pi, Claude Code, Codex, OpenCode, Gemini CLI, or ACP harness work into either OpenClaw ACP runtime sessions or direct acpx-driven sessions ("telephone game" flow).
 user-invocable: false
 ---
 
 # ACP Harness Router
 
-When user intent is "run this in Pi/Claude Code/Codex/OpenCode/Gemini/Kimi (ACP harness)", do not use subagent runtime or PTY scraping. Route through ACP-aware flows.
+When user intent is "run this in Pi/Claude Code/Codex/OpenCode/Gemini (ACP harness)", do not use subagent runtime or PTY scraping. Route through ACP-aware flows.
 
 ## Intent detection
 
@@ -16,11 +16,6 @@ Trigger this skill when the user asks OpenClaw to:
 - continue existing harness work
 - relay instructions to an external coding harness
 - keep an external harness conversation in a thread-like conversation
-
-Mandatory preflight for coding-agent thread requests:
-
-- Before creating any thread for Pi/Claude/Codex/OpenCode/Gemini work, read this skill first in the same turn.
-- After reading, follow `OpenClaw ACP runtime path` below; do not use `message(action="thread-create")` for ACP harness thread spawn.
 
 ## Mode selection
 
@@ -39,7 +34,7 @@ Do not use:
 
 - `subagents` runtime for harness control
 - `/acp` command delegation as a requirement for the user
-- PTY scraping of pi/claude/codex/opencode/gemini/kimi CLIs when `acpx` is available
+- PTY scraping of pi/claude/codex/opencode/gemini CLIs when `acpx` is available
 
 ## AgentId mapping
 
@@ -50,7 +45,6 @@ Use these defaults when user names a harness directly:
 - "codex" -> `agentId: "codex"`
 - "opencode" -> `agentId: "opencode"`
 - "gemini" or "gemini cli" -> `agentId: "gemini"`
-- "kimi" or "kimi cli" -> `agentId: "kimi"`
 
 These defaults match current acpx built-in aliases.
 
@@ -60,15 +54,13 @@ If policy rejects the chosen id, report the policy error clearly and ask for the
 
 Required behavior:
 
-1. For ACP harness thread spawn requests, read this skill first in the same turn before calling tools.
-2. Use `sessions_spawn` with:
+1. Use `sessions_spawn` with:
    - `runtime: "acp"`
    - `thread: true`
    - `mode: "session"` (unless user explicitly wants one-shot)
-3. For ACP harness thread creation, do not use `message` with `action=thread-create`; `sessions_spawn` is the only thread-create path.
-4. Put requested work in `task` so the ACP session gets it immediately.
-5. Set `agentId` explicitly unless ACP default agent is known.
-6. Do not ask user to run slash commands or CLI when this path works directly.
+2. Put requested work in `task` so the ACP session gets it immediately.
+3. Set `agentId` explicitly unless ACP default agent is known.
+4. Do not ask user to run slash commands or CLI when this path works directly.
 
 Example:
 
@@ -88,7 +80,7 @@ Call:
 
 ## Thread spawn recovery policy
 
-When the user asks to start a coding harness in a thread (for example "start a codex/claude/pi/kimi thread"), treat that as an ACP runtime request and try to satisfy it end-to-end.
+When the user asks to start a coding harness in a thread (for example "start a codex/claude/pi thread"), treat that as an ACP runtime request and try to satisfy it end-to-end.
 
 Required behavior when ACP backend is unavailable:
 
@@ -184,7 +176,6 @@ ${ACPX_CMD} codex sessions close oc-codex-<conversationId>
 - `codex`
 - `opencode`
 - `gemini`
-- `kimi`
 
 ### Built-in adapter commands in acpx
 
@@ -195,7 +186,6 @@ Defaults are:
 - `codex -> npx @zed-industries/codex-acp`
 - `opencode -> npx -y opencode-ai acp`
 - `gemini -> gemini`
-- `kimi -> kimi acp`
 
 If `~/.acpx/config.json` overrides `agents`, those overrides replace defaults.
 

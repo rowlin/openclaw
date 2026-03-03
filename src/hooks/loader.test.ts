@@ -65,20 +65,6 @@ describe("loader", () => {
   });
 
   describe("loadInternalHooks", () => {
-    const createLegacyHandlerConfig = () =>
-      createEnabledHooksConfig([
-        {
-          event: "command:new",
-          module: "legacy-handler.js",
-        },
-      ]);
-
-    const expectNoCommandHookRegistration = async (cfg: OpenClawConfig) => {
-      const count = await loadInternalHooks(cfg, tmpDir);
-      expect(count).toBe(0);
-      expect(getRegisteredEventKeys()).not.toContain("command:new");
-    };
-
     it("should return 0 when hooks are not enabled", async () => {
       const cfg: OpenClawConfig = {
         hooks: {
@@ -266,7 +252,11 @@ describe("loader", () => {
         return;
       }
 
-      await expectNoCommandHookRegistration(createEnabledHooksConfig());
+      const cfg = createEnabledHooksConfig();
+
+      const count = await loadInternalHooks(cfg, tmpDir);
+      expect(count).toBe(0);
+      expect(getRegisteredEventKeys()).not.toContain("command:new");
     });
 
     it("rejects legacy handler modules that escape workspace via symlink", async () => {
@@ -280,7 +270,16 @@ describe("loader", () => {
         return;
       }
 
-      await expectNoCommandHookRegistration(createLegacyHandlerConfig());
+      const cfg = createEnabledHooksConfig([
+        {
+          event: "command:new",
+          module: "legacy-handler.js",
+        },
+      ]);
+
+      const count = await loadInternalHooks(cfg, tmpDir);
+      expect(count).toBe(0);
+      expect(getRegisteredEventKeys()).not.toContain("command:new");
     });
 
     it("rejects directory hook handlers that escape hook dir via hardlink", async () => {
@@ -314,7 +313,10 @@ describe("loader", () => {
         throw err;
       }
 
-      await expectNoCommandHookRegistration(createEnabledHooksConfig());
+      const cfg = createEnabledHooksConfig();
+      const count = await loadInternalHooks(cfg, tmpDir);
+      expect(count).toBe(0);
+      expect(getRegisteredEventKeys()).not.toContain("command:new");
     });
 
     it("rejects legacy handler modules that escape workspace via hardlink", async () => {
@@ -334,7 +336,16 @@ describe("loader", () => {
         throw err;
       }
 
-      await expectNoCommandHookRegistration(createLegacyHandlerConfig());
+      const cfg = createEnabledHooksConfig([
+        {
+          event: "command:new",
+          module: "legacy-handler.js",
+        },
+      ]);
+
+      const count = await loadInternalHooks(cfg, tmpDir);
+      expect(count).toBe(0);
+      expect(getRegisteredEventKeys()).not.toContain("command:new");
     });
   });
 });

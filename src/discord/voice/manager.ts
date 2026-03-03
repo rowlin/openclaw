@@ -18,9 +18,8 @@ import {
 } from "@discordjs/voice";
 import { resolveAgentDir } from "../../agents/agent-scope.js";
 import type { MsgContext } from "../../auto-reply/templating.js";
-import { agentCommandFromIngress } from "../../commands/agent.js";
+import { agentCommand } from "../../commands/agent.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { isDangerousNameMatchingEnabled } from "../../config/dangerous-name-matching.js";
 import type { DiscordAccountConfig, TtsConfig } from "../../config/types.js";
 import { logVerbose, shouldLogVerbose } from "../../globals.js";
 import { formatErrorMessage } from "../../infra/errors.js";
@@ -36,8 +35,6 @@ import { resolveAgentRoute } from "../../routing/resolve-route.js";
 import type { RuntimeEnv } from "../../runtime.js";
 import { parseTtsDirectives } from "../../tts/tts-core.js";
 import { resolveTtsConfig, textToSpeech, type ResolvedTtsConfig } from "../../tts/tts.js";
-import { resolveDiscordOwnerAccess } from "../monitor/allow-list.js";
-import { formatDiscordUserTag } from "../monitor/format.js";
 
 const require = createRequire(import.meta.url);
 
@@ -51,7 +48,6 @@ const SPEAKING_READY_TIMEOUT_MS = 60_000;
 const DECRYPT_FAILURE_WINDOW_MS = 30_000;
 const DECRYPT_FAILURE_RECONNECT_THRESHOLD = 3;
 const DECRYPT_FAILURE_PATTERN = /DecryptionFailed\(/;
-const SPEAKER_CONTEXT_CACHE_TTL_MS = 60_000;
 
 const logger = createSubsystemLogger("discord/voice");
 
@@ -279,16 +275,6 @@ export class DiscordVoiceManager {
   private botUserId?: string;
   private readonly voiceEnabled: boolean;
   private autoJoinTask: Promise<void> | null = null;
-  private readonly ownerAllowFrom: string[];
-  private readonly allowDangerousNameMatching: boolean;
-  private readonly speakerContextCache = new Map<
-    string,
-    {
-      label: string;
-      senderIsOwner: boolean;
-      expiresAt: number;
-    }
-  >();
 
   constructor(
     private params: {
@@ -302,9 +288,6 @@ export class DiscordVoiceManager {
   ) {
     this.botUserId = params.botUserId;
     this.voiceEnabled = params.discordConfig.voice?.enabled !== false;
-    this.ownerAllowFrom =
-      params.discordConfig.allowFrom ?? params.discordConfig.dm?.allowFrom ?? [];
-    this.allowDangerousNameMatching = isDangerousNameMatchingEnabled(params.discordConfig);
   }
 
   setBotUserId(id?: string) {
@@ -642,16 +625,15 @@ export class DiscordVoiceManager {
       `transcription ok (${transcript.length} chars): guild ${entry.guildId} channel ${entry.channelId}`,
     );
 
-    const speaker = await this.resolveSpeakerContext(entry.guildId, userId);
-    const prompt = speaker.label ? `${speaker.label}: ${transcript}` : transcript;
+    const speakerLabel = await this.resolveSpeakerLabel(entry.guildId, userId);
+    const prompt = speakerLabel ? `${speakerLabel}: ${transcript}` : transcript;
 
-    const result = await agentCommandFromIngress(
+    const result = await agentCommand(
       {
         message: prompt,
         sessionKey: entry.route.sessionKey,
         agentId: entry.route.agentId,
         messageChannel: "discord",
-        senderIsOwner: speaker.senderIsOwner,
         deliver: false,
       },
       this.params.runtime,
@@ -775,113 +757,16 @@ export class DiscordVoiceManager {
     }
   }
 
-  private resolveSpeakerIsOwner(params: { id: string; name?: string; tag?: string }): boolean {
-    return resolveDiscordOwnerAccess({
-      allowFrom: this.ownerAllowFrom,
-      sender: {
-        id: params.id,
-        name: params.name,
-        tag: params.tag,
-      },
-      allowNameMatching: this.allowDangerousNameMatching,
-    }).ownerAllowed;
-  }
-
-  private resolveSpeakerContextCacheKey(guildId: string, userId: string): string {
-    return `${guildId}:${userId}`;
-  }
-
-  private getCachedSpeakerContext(
-    guildId: string,
-    userId: string,
-  ):
-    | {
-        label: string;
-        senderIsOwner: boolean;
-      }
-    | undefined {
-    const key = this.resolveSpeakerContextCacheKey(guildId, userId);
-    const cached = this.speakerContextCache.get(key);
-    if (!cached) {
-      return undefined;
-    }
-    if (cached.expiresAt <= Date.now()) {
-      this.speakerContextCache.delete(key);
-      return undefined;
-    }
-    return {
-      label: cached.label,
-      senderIsOwner: cached.senderIsOwner,
-    };
-  }
-
-  private setCachedSpeakerContext(
-    guildId: string,
-    userId: string,
-    context: { label: string; senderIsOwner: boolean },
-  ): void {
-    const key = this.resolveSpeakerContextCacheKey(guildId, userId);
-    this.speakerContextCache.set(key, {
-      label: context.label,
-      senderIsOwner: context.senderIsOwner,
-      expiresAt: Date.now() + SPEAKER_CONTEXT_CACHE_TTL_MS,
-    });
-  }
-
-  private async resolveSpeakerContext(
-    guildId: string,
-    userId: string,
-  ): Promise<{
-    label: string;
-    senderIsOwner: boolean;
-  }> {
-    const cached = this.getCachedSpeakerContext(guildId, userId);
-    if (cached) {
-      return cached;
-    }
-    const identity = await this.resolveSpeakerIdentity(guildId, userId);
-    const context = {
-      label: identity.label,
-      senderIsOwner: this.resolveSpeakerIsOwner({
-        id: identity.id,
-        name: identity.name,
-        tag: identity.tag,
-      }),
-    };
-    this.setCachedSpeakerContext(guildId, userId, context);
-    return context;
-  }
-
-  private async resolveSpeakerIdentity(
-    guildId: string,
-    userId: string,
-  ): Promise<{
-    id: string;
-    label: string;
-    name?: string;
-    tag?: string;
-  }> {
+  private async resolveSpeakerLabel(guildId: string, userId: string): Promise<string | undefined> {
     try {
       const member = await this.params.client.fetchMember(guildId, userId);
-      const username = member.user?.username ?? undefined;
-      return {
-        id: userId,
-        label: member.nickname ?? member.user?.globalName ?? username ?? userId,
-        name: username,
-        tag: member.user ? formatDiscordUserTag(member.user) : undefined,
-      };
+      return member.nickname ?? member.user?.globalName ?? member.user?.username ?? userId;
     } catch {
       try {
         const user = await this.params.client.fetchUser(userId);
-        const username = user.username ?? undefined;
-        return {
-          id: userId,
-          label: user.globalName ?? username ?? userId,
-          name: username,
-          tag: formatDiscordUserTag(user),
-        };
+        return user.globalName ?? user.username ?? userId;
       } catch {
-        return { id: userId, label: userId };
+        return userId;
       }
     }
   }

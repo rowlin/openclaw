@@ -45,12 +45,3 @@ export function ssrfPolicyFromAllowPrivateNetwork(
 ): SsrFPolicy | undefined {
   return allowPrivateNetwork ? { allowPrivateNetwork: true } : undefined;
 }
-
-/**
- * Get the default SSRF policy for image uploads.
- * Uses a restrictive policy that blocks private networks by default.
- */
-export function getDefaultSsrFPolicy(): SsrFPolicy | undefined {
-  // Default: block private networks for image uploads (safer default)
-  return undefined;
-}

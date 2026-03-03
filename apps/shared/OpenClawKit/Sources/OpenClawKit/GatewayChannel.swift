@@ -45,7 +45,11 @@ public struct WebSocketTaskBox: @unchecked Sendable {
     public func sendPing() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             self.task.sendPing { error in
-                ThrowingContinuationSupport.resumeVoid(continuation, error: error)
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
             }
         }
     }
@@ -406,12 +410,15 @@ public actor GatewayChannelActor {
                 nonce: connectNonce,
                 platform: platform,
                 deviceFamily: InstanceIdentity.deviceFamily)
-            if let device = GatewayDeviceAuthPayload.signedDeviceDictionary(
-                payload: payload,
-                identity: identity,
-                signedAtMs: signedAtMs,
-                nonce: connectNonce)
-            {
+            if let signature = DeviceIdentityStore.signPayload(payload, identity: identity),
+               let publicKey = DeviceIdentityStore.publicKeyBase64Url(identity) {
+                let device: [String: ProtoAnyCodable] = [
+                    "id": ProtoAnyCodable(identity.deviceId),
+                    "publicKey": ProtoAnyCodable(publicKey),
+                    "signature": ProtoAnyCodable(signature),
+                    "signedAt": ProtoAnyCodable(signedAtMs),
+                    "nonce": ProtoAnyCodable(connectNonce),
+                ]
                 params["device"] = ProtoAnyCodable(device)
             }
         }
@@ -553,7 +560,8 @@ public actor GatewayChannelActor {
                     guard let frame = try? self.decoder.decode(GatewayFrame.self, from: data) else { continue }
                     if case let .event(evt) = frame, evt.event == "connect.challenge",
                        let payload = evt.payload?.value as? [String: ProtoAnyCodable],
-                       let nonce = GatewayConnectChallengeSupport.nonce(from: payload)
+                       let nonce = payload["nonce"]?.value as? String,
+                       nonce.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                     {
                         return nonce
                     }

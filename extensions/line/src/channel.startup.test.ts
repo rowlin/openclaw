@@ -115,15 +115,16 @@ describe("linePlugin gateway.startAccount", () => {
       }),
     );
 
-    await vi.waitFor(() => {
-      expect(monitorLineProvider).toHaveBeenCalledWith(
-        expect.objectContaining({
-          channelAccessToken: "token",
-          channelSecret: "secret",
-          accountId: "default",
-        }),
-      );
-    });
+    // Allow async internals (probeLineBot await) to flush
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(monitorLineProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelAccessToken: "token",
+        channelSecret: "secret",
+        accountId: "default",
+      }),
+    );
 
     abort.abort();
     await task;

@@ -10,7 +10,7 @@ import {
   cleanupTailscaleExposureRoute,
   getTailscaleSelfInfo,
   setupTailscaleExposureRoute,
-} from "./webhook/tailscale.js";
+} from "./webhook.js";
 
 type Logger = {
   info: (message: string) => void;

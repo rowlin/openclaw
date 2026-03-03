@@ -70,6 +70,7 @@ const createRegistry = (channels: PluginRegistry["channels"]): PluginRegistry =>
   channels,
   providers: [],
   gatewayHandlers: {},
+  httpHandlers: [],
   httpRoutes: [],
   cliRegistrars: [],
   services: [],
@@ -383,8 +384,6 @@ describe("routeReply", () => {
       channel: "slack",
       to: "channel:C123",
       sessionKey: "agent:main:main",
-      isGroup: true,
-      groupId: "channel:C123",
       cfg: {} as never,
     });
     expect(mocks.deliverOutboundPayloads).toHaveBeenCalledWith(
@@ -392,8 +391,6 @@ describe("routeReply", () => {
         mirror: expect.objectContaining({
           sessionKey: "agent:main:main",
           text: "hi",
-          isGroup: true,
-          groupId: "channel:C123",
         }),
       }),
     );

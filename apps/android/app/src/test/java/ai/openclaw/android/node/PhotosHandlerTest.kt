@@ -10,8 +10,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 
-class PhotosHandlerTest : NodeHandlerRobolectricTest() {
+@RunWith(RobolectricTestRunner::class)
+class PhotosHandlerTest {
   @Test
   fun handlePhotosLatest_requiresPermission() {
     val handler = PhotosHandler.forTesting(appContext(), FakePhotosDataSource(hasPermission = false))
@@ -59,6 +63,8 @@ class PhotosHandlerTest : NodeHandlerRobolectricTest() {
     assertEquals("jpeg", first.getValue("format").jsonPrimitive.content)
     assertEquals(640, first.getValue("width").jsonPrimitive.int)
   }
+
+  private fun appContext(): Context = RuntimeEnvironment.getApplication()
 }
 
 private class FakePhotosDataSource(

@@ -1,15 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
-import type {
-  WindowsSpawnProgram,
-  WindowsSpawnProgramCandidate,
-  WindowsSpawnResolution,
-} from "openclaw/plugin-sdk";
-import {
-  applyWindowsSpawnProgramPolicy,
-  materializeWindowsSpawnProgram,
-  resolveWindowsSpawnProgramCandidate,
-} from "openclaw/plugin-sdk";
+import path from "node:path";
 
 export type SpawnExit = {
   code: number | null;
@@ -21,121 +12,50 @@ type ResolvedSpawnCommand = {
   command: string;
   args: string[];
   shell?: boolean;
-  windowsHide?: boolean;
 };
 
-type SpawnRuntime = {
-  platform: NodeJS.Platform;
-  env: NodeJS.ProcessEnv;
-  execPath: string;
-};
-
-export type SpawnCommandCache = {
-  key?: string;
-  candidate?: WindowsSpawnProgramCandidate;
-};
-
-export type SpawnResolution = WindowsSpawnResolution | "unresolved-wrapper";
-export type SpawnResolutionEvent = {
-  command: string;
-  cacheHit: boolean;
-  strictWindowsCmdWrapper: boolean;
-  resolution: SpawnResolution;
-};
-
-export type SpawnCommandOptions = {
-  strictWindowsCmdWrapper?: boolean;
-  cache?: SpawnCommandCache;
-  onResolved?: (event: SpawnResolutionEvent) => void;
-};
-
-const DEFAULT_RUNTIME: SpawnRuntime = {
-  platform: process.platform,
-  env: process.env,
-  execPath: process.execPath,
-};
-
-export function resolveSpawnCommand(
-  params: { command: string; args: string[] },
-  options?: SpawnCommandOptions,
-  runtime: SpawnRuntime = DEFAULT_RUNTIME,
-): ResolvedSpawnCommand {
-  const strictWindowsCmdWrapper = options?.strictWindowsCmdWrapper === true;
-  const cacheKey = params.command;
-  const cachedProgram = options?.cache;
-
-  const cacheHit = cachedProgram?.key === cacheKey && cachedProgram.candidate != null;
-  let candidate =
-    cachedProgram?.key === cacheKey && cachedProgram.candidate
-      ? cachedProgram.candidate
-      : undefined;
-  if (!candidate) {
-    candidate = resolveWindowsSpawnProgramCandidate({
-      command: params.command,
-      platform: runtime.platform,
-      env: runtime.env,
-      execPath: runtime.execPath,
-      packageName: "acpx",
-    });
-    if (cachedProgram) {
-      cachedProgram.key = cacheKey;
-      cachedProgram.candidate = candidate;
-    }
+function resolveSpawnCommand(params: { command: string; args: string[] }): ResolvedSpawnCommand {
+  if (process.platform !== "win32") {
+    return { command: params.command, args: params.args };
   }
 
-  let program: WindowsSpawnProgram;
-  try {
-    program = applyWindowsSpawnProgramPolicy({
-      candidate,
-      allowShellFallback: !strictWindowsCmdWrapper,
-    });
-  } catch (error) {
-    options?.onResolved?.({
-      command: params.command,
-      cacheHit,
-      strictWindowsCmdWrapper,
-      resolution: candidate.resolution,
-    });
-    throw error;
+  const extension = path.extname(params.command).toLowerCase();
+  if (extension === ".js" || extension === ".cjs" || extension === ".mjs") {
+    return {
+      command: process.execPath,
+      args: [params.command, ...params.args],
+    };
   }
 
-  const resolved = materializeWindowsSpawnProgram(program, params.args);
-  options?.onResolved?.({
-    command: params.command,
-    cacheHit,
-    strictWindowsCmdWrapper,
-    resolution: resolved.resolution,
-  });
+  if (extension === ".cmd" || extension === ".bat") {
+    return {
+      command: params.command,
+      args: params.args,
+      shell: true,
+    };
+  }
+
   return {
-    command: resolved.command,
-    args: resolved.argv,
-    shell: resolved.shell,
-    windowsHide: resolved.windowsHide,
+    command: params.command,
+    args: params.args,
   };
 }
 
-export function spawnWithResolvedCommand(
-  params: {
-    command: string;
-    args: string[];
-    cwd: string;
-  },
-  options?: SpawnCommandOptions,
-): ChildProcessWithoutNullStreams {
-  const resolved = resolveSpawnCommand(
-    {
-      command: params.command,
-      args: params.args,
-    },
-    options,
-  );
+export function spawnWithResolvedCommand(params: {
+  command: string;
+  args: string[];
+  cwd: string;
+}): ChildProcessWithoutNullStreams {
+  const resolved = resolveSpawnCommand({
+    command: params.command,
+    args: params.args,
+  });
 
   return spawn(resolved.command, resolved.args, {
     cwd: params.cwd,
-    env: { ...process.env, OPENCLAW_SHELL: "acp" },
+    env: process.env,
     stdio: ["pipe", "pipe", "pipe"],
     shell: resolved.shell,
-    windowsHide: resolved.windowsHide,
   });
 }
 
@@ -160,20 +80,17 @@ export async function waitForExit(child: ChildProcessWithoutNullStreams): Promis
   });
 }
 
-export async function spawnAndCollect(
-  params: {
-    command: string;
-    args: string[];
-    cwd: string;
-  },
-  options?: SpawnCommandOptions,
-): Promise<{
+export async function spawnAndCollect(params: {
+  command: string;
+  args: string[];
+  cwd: string;
+}): Promise<{
   stdout: string;
   stderr: string;
   code: number | null;
   error: Error | null;
 }> {
-  const child = spawnWithResolvedCommand(params, options);
+  const child = spawnWithResolvedCommand(params);
   child.stdin.end();
 
   let stdout = "";

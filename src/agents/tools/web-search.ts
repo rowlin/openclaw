@@ -1,14 +1,15 @@
 import { Type } from "@sinclair/typebox";
 import { formatCliCommand } from "../../cli/command-format.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { normalizeResolvedSecretInputString } from "../../config/types.secrets.js";
 import { logVerbose } from "../../globals.js";
 import { wrapWebContent } from "../../security/external-content.js";
 import { normalizeSecretInput } from "../../utils/normalize-secret-input.js";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readNumberParam, readStringParam } from "./common.js";
-import { withTrustedWebToolsEndpoint } from "./web-guarded-fetch.js";
-import { resolveCitationRedirectUrl } from "./web-search-citation-redirect.js";
+import {
+  WEB_TOOLS_TRUSTED_NETWORK_SSRF_POLICY,
+  withWebToolsNetworkGuard,
+} from "./web-guarded-fetch.js";
 import {
   CacheEntry,
   DEFAULT_CACHE_TTL_MINUTES,
@@ -284,14 +285,10 @@ function resolveSearchEnabled(params: { search?: WebSearchConfig; sandboxed?: bo
 }
 
 function resolveSearchApiKey(search?: WebSearchConfig): string | undefined {
-  const fromConfigRaw =
-    search && "apiKey" in search
-      ? normalizeResolvedSecretInputString({
-          value: search.apiKey,
-          path: "tools.web.search.apiKey",
-        })
-      : undefined;
-  const fromConfig = normalizeSecretInput(fromConfigRaw);
+  const fromConfig =
+    search && "apiKey" in search && typeof search.apiKey === "string"
+      ? normalizeSecretInput(search.apiKey)
+      : "";
   const fromEnv = normalizeSecretInput(process.env.BRAVE_API_KEY);
   return fromConfig || fromEnv || undefined;
 }
@@ -612,11 +609,12 @@ async function withTrustedWebSearchEndpoint<T>(
   },
   run: (response: Response) => Promise<T>,
 ): Promise<T> {
-  return withTrustedWebToolsEndpoint(
+  return withWebToolsNetworkGuard(
     {
       url: params.url,
       init: params.init,
       timeoutSeconds: params.timeoutSeconds,
+      policy: WEB_TOOLS_TRUSTED_NETWORK_SSRF_POLICY,
     },
     async ({ response }) => run(response),
   );
@@ -698,7 +696,7 @@ async function runGeminiSearch(params: {
         const batch = rawCitations.slice(i, i + MAX_CONCURRENT_REDIRECTS);
         const resolved = await Promise.all(
           batch.map(async (citation) => {
-            const resolvedUrl = await resolveCitationRedirectUrl(citation.url);
+            const resolvedUrl = await resolveRedirectUrl(citation.url);
             return { ...citation, url: resolvedUrl };
           }),
         );
@@ -708,6 +706,28 @@ async function runGeminiSearch(params: {
       return { content, citations };
     },
   );
+}
+
+const REDIRECT_TIMEOUT_MS = 5000;
+
+/**
+ * Resolve a redirect URL to its final destination using a HEAD request.
+ * Returns the original URL if resolution fails or times out.
+ */
+async function resolveRedirectUrl(url: string): Promise<string> {
+  try {
+    return await withWebToolsNetworkGuard(
+      {
+        url,
+        init: { method: "HEAD" },
+        timeoutMs: REDIRECT_TIMEOUT_MS,
+        policy: WEB_TOOLS_TRUSTED_NETWORK_SSRF_POLICY,
+      },
+      async ({ finalUrl }) => finalUrl || url,
+    );
+  } catch {
+    return url;
+  }
 }
 
 function resolveSearchCount(value: unknown, fallback: number): number {
@@ -1473,5 +1493,5 @@ export const __testing = {
   resolveKimiModel,
   resolveKimiBaseUrl,
   extractKimiCitations,
-  resolveRedirectUrl: resolveCitationRedirectUrl,
+  resolveRedirectUrl,
 } as const;

@@ -224,16 +224,14 @@ function generatePkce(): { verifier: string; challenge: string } {
   return { verifier, challenge };
 }
 
-function resolvePlatform(): "WINDOWS" | "MACOS" | "PLATFORM_UNSPECIFIED" {
+function resolvePlatform(): "WINDOWS" | "MACOS" | "LINUX" {
   if (process.platform === "win32") {
     return "WINDOWS";
   }
-  if (process.platform === "darwin") {
-    return "MACOS";
+  if (process.platform === "linux") {
+    return "LINUX";
   }
-  // Google's loadCodeAssist API rejects "LINUX" as an invalid Platform enum value.
-  // Use "PLATFORM_UNSPECIFIED" for Linux and other platforms to match the pi-ai runtime.
-  return "PLATFORM_UNSPECIFIED";
+  return "MACOS";
 }
 
 async function fetchWithTimeout(

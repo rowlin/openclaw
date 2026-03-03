@@ -13,31 +13,6 @@ function json(data: unknown) {
   };
 }
 
-type LarkResponse<T = unknown> = { code?: number; msg?: string; data?: T };
-
-export class LarkApiError extends Error {
-  readonly code: number;
-  readonly api: string;
-  readonly context?: Record<string, unknown>;
-  constructor(code: number, message: string, api: string, context?: Record<string, unknown>) {
-    super(`[${api}] code=${code} message=${message}`);
-    this.name = "LarkApiError";
-    this.code = code;
-    this.api = api;
-    this.context = context;
-  }
-}
-
-function ensureLarkSuccess<T>(
-  res: LarkResponse<T>,
-  api: string,
-  context?: Record<string, unknown>,
-): asserts res is LarkResponse<T> & { code: 0 } {
-  if (res.code !== 0) {
-    throw new LarkApiError(res.code ?? -1, res.msg ?? "unknown error", api, context);
-  }
-}
-
 /** Field type ID to human-readable name */
 const FIELD_TYPE_NAMES: Record<number, string> = {
   1: "Text",
@@ -94,7 +69,9 @@ async function getAppTokenFromWiki(client: Lark.Client, nodeToken: string): Prom
   const res = await client.wiki.space.getNode({
     params: { token: nodeToken },
   });
-  ensureLarkSuccess(res, "wiki.space.getNode", { nodeToken });
+  if (res.code !== 0) {
+    throw new Error(res.msg);
+  }
 
   const node = res.data?.node;
   if (!node) {
@@ -125,7 +102,9 @@ async function getBitableMeta(client: Lark.Client, url: string) {
   const res = await client.bitable.app.get({
     path: { app_token: appToken },
   });
-  ensureLarkSuccess(res, "bitable.app.get", { appToken });
+  if (res.code !== 0) {
+    throw new Error(res.msg);
+  }
 
   // List tables if no table_id specified
   let tables: { table_id: string; name: string }[] = [];
@@ -157,7 +136,9 @@ async function listFields(client: Lark.Client, appToken: string, tableId: string
   const res = await client.bitable.appTableField.list({
     path: { app_token: appToken, table_id: tableId },
   });
-  ensureLarkSuccess(res, "bitable.appTableField.list", { appToken, tableId });
+  if (res.code !== 0) {
+    throw new Error(res.msg);
+  }
 
   const fields = res.data?.items ?? [];
   return {
@@ -187,7 +168,9 @@ async function listRecords(
       ...(pageToken && { page_token: pageToken }),
     },
   });
-  ensureLarkSuccess(res, "bitable.appTableRecord.list", { appToken, tableId, pageSize });
+  if (res.code !== 0) {
+    throw new Error(res.msg);
+  }
 
   return {
     records: res.data?.items ?? [],
@@ -201,7 +184,9 @@ async function getRecord(client: Lark.Client, appToken: string, tableId: string,
   const res = await client.bitable.appTableRecord.get({
     path: { app_token: appToken, table_id: tableId, record_id: recordId },
   });
-  ensureLarkSuccess(res, "bitable.appTableRecord.get", { appToken, tableId, recordId });
+  if (res.code !== 0) {
+    throw new Error(res.msg);
+  }
 
   return {
     record: res.data?.record,
@@ -219,7 +204,9 @@ async function createRecord(
     // oxlint-disable-next-line typescript/no-explicit-any
     data: { fields: fields as any },
   });
-  ensureLarkSuccess(res, "bitable.appTableRecord.create", { appToken, tableId });
+  if (res.code !== 0) {
+    throw new Error(res.msg);
+  }
 
   return {
     record: res.data?.record,
@@ -347,7 +334,9 @@ async function createApp(
       ...(folderToken && { folder_token: folderToken }),
     },
   });
-  ensureLarkSuccess(res, "bitable.app.create", { name, folderToken });
+  if (res.code !== 0) {
+    throw new Error(res.msg);
+  }
 
   const appToken = res.data?.app?.app_token;
   if (!appToken) {
@@ -404,12 +393,9 @@ async function createField(
       ...(property && { property }),
     },
   });
-  ensureLarkSuccess(res, "bitable.appTableField.create", {
-    appToken,
-    tableId,
-    fieldName,
-    fieldType,
-  });
+  if (res.code !== 0) {
+    throw new Error(res.msg);
+  }
 
   return {
     field_id: res.data?.field?.field_id,
@@ -431,7 +417,9 @@ async function updateRecord(
     // oxlint-disable-next-line typescript/no-explicit-any
     data: { fields: fields as any },
   });
-  ensureLarkSuccess(res, "bitable.appTableRecord.update", { appToken, tableId, recordId });
+  if (res.code !== 0) {
+    throw new Error(res.msg);
+  }
 
   return {
     record: res.data?.record,

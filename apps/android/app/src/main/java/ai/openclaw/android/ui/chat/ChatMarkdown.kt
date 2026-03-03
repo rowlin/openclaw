@@ -1,5 +1,7 @@
 package ai.openclaw.android.ui.chat
 
+import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,10 +20,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -40,6 +47,8 @@ import ai.openclaw.android.ui.mobileCaption1
 import ai.openclaw.android.ui.mobileCodeBg
 import ai.openclaw.android.ui.mobileCodeText
 import ai.openclaw.android.ui.mobileTextSecondary
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.commonmark.Extension
 import org.commonmark.ext.autolink.AutolinkExtension
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
@@ -546,8 +555,23 @@ private data class ParsedDataImage(
 
 @Composable
 private fun InlineBase64Image(base64: String, mimeType: String?) {
-  val imageState = rememberBase64ImageState(base64)
-  val image = imageState.image
+  var image by remember(base64) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+  var failed by remember(base64) { mutableStateOf(false) }
+
+  LaunchedEffect(base64) {
+    failed = false
+    image =
+      withContext(Dispatchers.Default) {
+        try {
+          val bytes = Base64.decode(base64, Base64.DEFAULT)
+          val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
+          bitmap.asImageBitmap()
+        } catch (_: Throwable) {
+          null
+        }
+      }
+    if (image == null) failed = true
+  }
 
   if (image != null) {
     Image(
@@ -556,7 +580,7 @@ private fun InlineBase64Image(base64: String, mimeType: String?) {
       contentScale = ContentScale.Fit,
       modifier = Modifier.fillMaxWidth(),
     )
-  } else if (imageState.failed) {
+  } else if (failed) {
     Text(
       text = "Image unavailable",
       modifier = Modifier.padding(vertical = 2.dp),

@@ -56,31 +56,6 @@ async function runPack(spec: string, cwd: string, timeoutMs = 1000) {
   });
 }
 
-async function expectPackFallsBackToDetectedArchive(params: { stdout: string }) {
-  const cwd = await createTempDir("openclaw-install-source-utils-");
-  const archivePath = path.join(cwd, "openclaw-plugin-1.2.3.tgz");
-  await fs.writeFile(archivePath, "", "utf-8");
-  runCommandWithTimeoutMock.mockResolvedValue({
-    stdout: params.stdout,
-    stderr: "",
-    code: 0,
-    signal: null,
-    killed: false,
-  });
-
-  const result = await packNpmSpecToArchive({
-    spec: "openclaw-plugin@1.2.3",
-    timeoutMs: 5000,
-    cwd,
-  });
-
-  expect(result).toEqual({
-    ok: true,
-    archivePath,
-    metadata: {},
-  });
-}
-
 beforeEach(() => {
   runCommandWithTimeoutMock.mockClear();
 });
@@ -220,11 +195,53 @@ describe("packNpmSpecToArchive", () => {
   });
 
   it("falls back to archive detected in cwd when npm pack stdout is empty", async () => {
-    await expectPackFallsBackToDetectedArchive({ stdout: " \n\n" });
+    const cwd = await createTempDir("openclaw-install-source-utils-");
+    const archivePath = path.join(cwd, "openclaw-plugin-1.2.3.tgz");
+    await fs.writeFile(archivePath, "", "utf-8");
+    runCommandWithTimeoutMock.mockResolvedValue({
+      stdout: " \n\n",
+      stderr: "",
+      code: 0,
+      signal: null,
+      killed: false,
+    });
+
+    const result = await packNpmSpecToArchive({
+      spec: "openclaw-plugin@1.2.3",
+      timeoutMs: 5000,
+      cwd,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      archivePath,
+      metadata: {},
+    });
   });
 
   it("falls back to archive detected in cwd when stdout does not contain a tgz", async () => {
-    await expectPackFallsBackToDetectedArchive({ stdout: "npm pack completed successfully\n" });
+    const cwd = await createTempDir("openclaw-install-source-utils-");
+    const archivePath = path.join(cwd, "openclaw-plugin-1.2.3.tgz");
+    await fs.writeFile(archivePath, "", "utf-8");
+    runCommandWithTimeoutMock.mockResolvedValue({
+      stdout: "npm pack completed successfully\n",
+      stderr: "",
+      code: 0,
+      signal: null,
+      killed: false,
+    });
+
+    const result = await packNpmSpecToArchive({
+      spec: "openclaw-plugin@1.2.3",
+      timeoutMs: 5000,
+      cwd,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      archivePath,
+      metadata: {},
+    });
   });
 
   it("returns friendly error for 404 (package not on npm)", async () => {

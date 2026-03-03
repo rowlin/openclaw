@@ -58,7 +58,7 @@ type ModelsConfig = NonNullable<OpenClawConfig["models"]>;
 export type ProviderConfig = NonNullable<ModelsConfig["providers"]>[string];
 
 const MINIMAX_PORTAL_BASE_URL = "https://api.minimax.io/anthropic";
-const MINIMAX_DEFAULT_MODEL_ID = "MiniMax-M2.5";
+const MINIMAX_DEFAULT_MODEL_ID = "MiniMax-M2.1";
 const MINIMAX_DEFAULT_VISION_MODEL_ID = "MiniMax-VL-01";
 const MINIMAX_DEFAULT_CONTEXT_WINDOW = 200000;
 const MINIMAX_DEFAULT_MAX_TOKENS = 8192;
@@ -496,13 +496,6 @@ export function normalizeProviders(params: {
 
   for (const [key, provider] of Object.entries(providers)) {
     const normalizedKey = key.trim();
-    if (!normalizedKey) {
-      mutated = true;
-      continue;
-    }
-    if (normalizedKey !== key) {
-      mutated = true;
-    }
     let normalizedProvider = provider;
     const configuredApiKey = normalizedProvider.apiKey;
 
@@ -561,19 +554,7 @@ export function normalizeProviders(params: {
       normalizedProvider = antigravityNormalized;
     }
 
-    const existing = next[normalizedKey];
-    if (existing) {
-      // Keep deterministic behavior if users accidentally define duplicate
-      // provider keys that only differ by surrounding whitespace.
-      mutated = true;
-      next[normalizedKey] = {
-        ...existing,
-        ...normalizedProvider,
-        models: normalizedProvider.models ?? existing.models,
-      };
-      continue;
-    }
-    next[normalizedKey] = normalizedProvider;
+    next[key] = normalizedProvider;
   }
 
   return mutated ? next : providers;
@@ -585,6 +566,16 @@ function buildMinimaxProvider(): ProviderConfig {
     api: "anthropic-messages",
     authHeader: true,
     models: [
+      buildMinimaxTextModel({
+        id: MINIMAX_DEFAULT_MODEL_ID,
+        name: "MiniMax M2.1",
+        reasoning: false,
+      }),
+      buildMinimaxTextModel({
+        id: "MiniMax-M2.1-lightning",
+        name: "MiniMax M2.1 Lightning",
+        reasoning: false,
+      }),
       buildMinimaxModel({
         id: MINIMAX_DEFAULT_VISION_MODEL_ID,
         name: "MiniMax VL 01",
@@ -594,11 +585,6 @@ function buildMinimaxProvider(): ProviderConfig {
       buildMinimaxTextModel({
         id: "MiniMax-M2.5",
         name: "MiniMax M2.5",
-        reasoning: true,
-      }),
-      buildMinimaxTextModel({
-        id: "MiniMax-M2.5-highspeed",
-        name: "MiniMax M2.5 Highspeed",
         reasoning: true,
       }),
       buildMinimaxTextModel({
@@ -618,17 +604,12 @@ function buildMinimaxPortalProvider(): ProviderConfig {
     models: [
       buildMinimaxTextModel({
         id: MINIMAX_DEFAULT_MODEL_ID,
+        name: "MiniMax M2.1",
+        reasoning: false,
+      }),
+      buildMinimaxTextModel({
+        id: "MiniMax-M2.5",
         name: "MiniMax M2.5",
-        reasoning: true,
-      }),
-      buildMinimaxTextModel({
-        id: "MiniMax-M2.5-highspeed",
-        name: "MiniMax M2.5 Highspeed",
-        reasoning: true,
-      }),
-      buildMinimaxTextModel({
-        id: "MiniMax-M2.5-Lightning",
-        name: "MiniMax M2.5 Lightning",
         reasoning: true,
       }),
     ],

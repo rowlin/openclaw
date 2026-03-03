@@ -9,7 +9,21 @@ final class AudioInputDeviceObserver {
     private var defaultInputListener: AudioObjectPropertyListenerBlock?
 
     static func defaultInputDeviceUID() -> String? {
-        guard let deviceID = self.defaultInputDeviceID() else { return nil }
+        let systemObject = AudioObjectID(kAudioObjectSystemObject)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var deviceID = AudioObjectID(0)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let status = AudioObjectGetPropertyData(
+            systemObject,
+            &address,
+            0,
+            nil,
+            &size,
+            &deviceID)
+        guard status == noErr, deviceID != 0 else { return nil }
         return self.deviceUID(for: deviceID)
     }
 
@@ -49,15 +63,6 @@ final class AudioInputDeviceObserver {
     }
 
     static func defaultInputDeviceSummary() -> String {
-        guard let deviceID = self.defaultInputDeviceID() else {
-            return "defaultInput=unknown"
-        }
-        let uid = self.deviceUID(for: deviceID) ?? "unknown"
-        let name = self.deviceName(for: deviceID) ?? "unknown"
-        return "defaultInput=\(name) (\(uid))"
-    }
-
-    private static func defaultInputDeviceID() -> AudioObjectID? {
         let systemObject = AudioObjectID(kAudioObjectSystemObject)
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
@@ -72,8 +77,12 @@ final class AudioInputDeviceObserver {
             nil,
             &size,
             &deviceID)
-        guard status == noErr, deviceID != 0 else { return nil }
-        return deviceID
+        guard status == noErr, deviceID != 0 else {
+            return "defaultInput=unknown"
+        }
+        let uid = self.deviceUID(for: deviceID) ?? "unknown"
+        let name = self.deviceName(for: deviceID) ?? "unknown"
+        return "defaultInput=\(name) (\(uid))"
     }
 
     func start(onChange: @escaping @Sendable () -> Void) {

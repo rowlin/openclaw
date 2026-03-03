@@ -370,9 +370,9 @@ describe("applyMinimaxApiConfig", () => {
     });
   });
 
-  it("keeps reasoning enabled for MiniMax-M2.5", () => {
-    const cfg = applyMinimaxApiConfig({}, "MiniMax-M2.5");
-    expect(cfg.models?.providers?.minimax?.models[0]?.reasoning).toBe(true);
+  it("does not set reasoning for non-reasoning models", () => {
+    const cfg = applyMinimaxApiConfig({}, "MiniMax-M2.1");
+    expect(cfg.models?.providers?.minimax?.models[0]?.reasoning).toBe(false);
   });
 
   it("preserves existing model params when adding alias", () => {
@@ -381,7 +381,7 @@ describe("applyMinimaxApiConfig", () => {
         agents: {
           defaults: {
             models: {
-              "minimax/MiniMax-M2.5": {
+              "minimax/MiniMax-M2.1": {
                 alias: "MiniMax",
                 params: { custom: "value" },
               },
@@ -389,9 +389,9 @@ describe("applyMinimaxApiConfig", () => {
           },
         },
       },
-      "MiniMax-M2.5",
+      "MiniMax-M2.1",
     );
-    expect(cfg.agents?.defaults?.models?.["minimax/MiniMax-M2.5"]).toMatchObject({
+    expect(cfg.agents?.defaults?.models?.["minimax/MiniMax-M2.1"]).toMatchObject({
       alias: "Minimax",
       params: { custom: "value" },
     });
@@ -514,8 +514,8 @@ describe("primary model defaults", () => {
   it("sets correct primary model", () => {
     const configCases = [
       {
-        getConfig: () => applyMinimaxApiConfig({}, "MiniMax-M2.5-highspeed"),
-        primaryModel: "minimax/MiniMax-M2.5-highspeed",
+        getConfig: () => applyMinimaxApiConfig({}, "MiniMax-M2.1-lightning"),
+        primaryModel: "minimax/MiniMax-M2.1-lightning",
       },
       {
         getConfig: () => applyZaiConfig({}, { modelId: "glm-5" }),
@@ -645,8 +645,8 @@ describe("provider alias defaults", () => {
   it("adds expected alias for provider defaults", () => {
     const aliasCases = [
       {
-        applyConfig: () => applyMinimaxApiConfig({}, "MiniMax-M2.5"),
-        modelRef: "minimax/MiniMax-M2.5",
+        applyConfig: () => applyMinimaxApiConfig({}, "MiniMax-M2.1"),
+        modelRef: "minimax/MiniMax-M2.1",
         alias: "Minimax",
       },
       {

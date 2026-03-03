@@ -1,27 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { pruneStickerMediaFromContext } from "./bot-message-dispatch.js";
 
-type MediaCtx = {
-  MediaPath?: string;
-  MediaUrl?: string;
-  MediaType?: string;
-  MediaPaths?: string[];
-  MediaUrls?: string[];
-  MediaTypes?: string[];
-};
-
-function expectSingleImageMedia(ctx: MediaCtx, mediaPath: string) {
-  expect(ctx.MediaPath).toBe(mediaPath);
-  expect(ctx.MediaUrl).toBe(mediaPath);
-  expect(ctx.MediaType).toBe("image/jpeg");
-  expect(ctx.MediaPaths).toEqual([mediaPath]);
-  expect(ctx.MediaUrls).toEqual([mediaPath]);
-  expect(ctx.MediaTypes).toEqual(["image/jpeg"]);
-}
-
 describe("pruneStickerMediaFromContext", () => {
   it("preserves appended reply media while removing primary sticker media", () => {
-    const ctx: MediaCtx = {
+    const ctx = {
       MediaPath: "/tmp/sticker.webp",
       MediaUrl: "/tmp/sticker.webp",
       MediaType: "image/webp",
@@ -32,11 +14,16 @@ describe("pruneStickerMediaFromContext", () => {
 
     pruneStickerMediaFromContext(ctx);
 
-    expectSingleImageMedia(ctx, "/tmp/replied.jpg");
+    expect(ctx.MediaPath).toBe("/tmp/replied.jpg");
+    expect(ctx.MediaUrl).toBe("/tmp/replied.jpg");
+    expect(ctx.MediaType).toBe("image/jpeg");
+    expect(ctx.MediaPaths).toEqual(["/tmp/replied.jpg"]);
+    expect(ctx.MediaUrls).toEqual(["/tmp/replied.jpg"]);
+    expect(ctx.MediaTypes).toEqual(["image/jpeg"]);
   });
 
   it("clears media fields when sticker is the only media", () => {
-    const ctx: MediaCtx = {
+    const ctx = {
       MediaPath: "/tmp/sticker.webp",
       MediaUrl: "/tmp/sticker.webp",
       MediaType: "image/webp",
@@ -56,7 +43,7 @@ describe("pruneStickerMediaFromContext", () => {
   });
 
   it("does not prune when sticker media is already omitted from context", () => {
-    const ctx: MediaCtx = {
+    const ctx = {
       MediaPath: "/tmp/replied.jpg",
       MediaUrl: "/tmp/replied.jpg",
       MediaType: "image/jpeg",
@@ -67,6 +54,11 @@ describe("pruneStickerMediaFromContext", () => {
 
     pruneStickerMediaFromContext(ctx, { stickerMediaIncluded: false });
 
-    expectSingleImageMedia(ctx, "/tmp/replied.jpg");
+    expect(ctx.MediaPath).toBe("/tmp/replied.jpg");
+    expect(ctx.MediaUrl).toBe("/tmp/replied.jpg");
+    expect(ctx.MediaType).toBe("image/jpeg");
+    expect(ctx.MediaPaths).toEqual(["/tmp/replied.jpg"]);
+    expect(ctx.MediaUrls).toEqual(["/tmp/replied.jpg"]);
+    expect(ctx.MediaTypes).toEqual(["image/jpeg"]);
   });
 });

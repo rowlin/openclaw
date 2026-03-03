@@ -527,13 +527,7 @@ Only enable direct mutable name/email/nick matching with each channel's `dangero
 }
 ```
 
-### Anthropic setup-token + API key, MiniMax fallback
-
-<Warning>
-Anthropic setup-token usage outside Claude Code has been restricted for some
-users in the past. Treat this as user-choice risk and verify current Anthropic
-terms before depending on subscription auth.
-</Warning>
+### Anthropic subscription + API key, MiniMax fallback
 
 ```json5
 {
@@ -566,7 +560,7 @@ terms before depending on subscription auth.
     workspace: "~/.openclaw/workspace",
     model: {
       primary: "anthropic/claude-opus-4-6",
-      fallbacks: ["minimax/MiniMax-M2.5"],
+      fallbacks: ["minimax/MiniMax-M2.1"],
     },
   },
 }
@@ -603,7 +597,7 @@ terms before depending on subscription auth.
 {
   agent: {
     workspace: "~/.openclaw/workspace",
-    model: { primary: "lmstudio/minimax-m2.5-gs32" },
+    model: { primary: "lmstudio/minimax-m2.1-gs32" },
   },
   models: {
     mode: "merge",
@@ -614,8 +608,8 @@ terms before depending on subscription auth.
         api: "openai-responses",
         models: [
           {
-            id: "minimax-m2.5-gs32",
-            name: "MiniMax M2.5 GS32",
+            id: "minimax-m2.1-gs32",
+            name: "MiniMax M2.1 GS32",
             reasoning: false,
             input: ["text"],
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

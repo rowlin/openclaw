@@ -7,10 +7,6 @@ export type BundledPluginSource = {
   npmSpec?: string;
 };
 
-export type BundledPluginLookup =
-  | { kind: "npmSpec"; value: string }
-  | { kind: "pluginId"; value: string };
-
 export function resolveBundledPluginSources(params: {
   workspaceDir?: string;
 }): Map<string, BundledPluginSource> {
@@ -21,7 +17,7 @@ export function resolveBundledPluginSources(params: {
     if (candidate.origin !== "bundled") {
       continue;
     }
-    const manifest = loadPluginManifest(candidate.rootDir, false);
+    const manifest = loadPluginManifest(candidate.rootDir);
     if (!manifest.ok) {
       continue;
     }
@@ -45,20 +41,17 @@ export function resolveBundledPluginSources(params: {
   return bundled;
 }
 
-export function findBundledPluginSource(params: {
-  lookup: BundledPluginLookup;
+export function findBundledPluginByNpmSpec(params: {
+  spec: string;
   workspaceDir?: string;
 }): BundledPluginSource | undefined {
-  const targetValue = params.lookup.value.trim();
-  if (!targetValue) {
+  const targetSpec = params.spec.trim();
+  if (!targetSpec) {
     return undefined;
   }
   const bundled = resolveBundledPluginSources({ workspaceDir: params.workspaceDir });
-  if (params.lookup.kind === "pluginId") {
-    return bundled.get(targetValue);
-  }
   for (const source of bundled.values()) {
-    if (source.npmSpec === targetValue) {
+    if (source.npmSpec === targetSpec) {
       return source;
     }
   }

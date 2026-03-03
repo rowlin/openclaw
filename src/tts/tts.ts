@@ -14,7 +14,6 @@ import type { ReplyPayload } from "../auto-reply/types.js";
 import { normalizeChannelId } from "../channels/plugins/index.js";
 import type { ChannelId } from "../channels/plugins/types.js";
 import type { OpenClawConfig } from "../config/config.js";
-import { normalizeResolvedSecretInputString } from "../config/types.secrets.js";
 import type {
   TtsConfig,
   TtsAutoMode,
@@ -266,10 +265,7 @@ export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
     summaryModel: raw.summaryModel?.trim() || undefined,
     modelOverrides: resolveModelOverridePolicy(raw.modelOverrides),
     elevenlabs: {
-      apiKey: normalizeResolvedSecretInputString({
-        value: raw.elevenlabs?.apiKey,
-        path: "messages.tts.elevenlabs.apiKey",
-      }),
+      apiKey: raw.elevenlabs?.apiKey,
       baseUrl: raw.elevenlabs?.baseUrl?.trim() || DEFAULT_ELEVENLABS_BASE_URL,
       voiceId: raw.elevenlabs?.voiceId ?? DEFAULT_ELEVENLABS_VOICE_ID,
       modelId: raw.elevenlabs?.modelId ?? DEFAULT_ELEVENLABS_MODEL_ID,
@@ -290,10 +286,7 @@ export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
       },
     },
     openai: {
-      apiKey: normalizeResolvedSecretInputString({
-        value: raw.openai?.apiKey,
-        path: "messages.tts.openai.apiKey",
-      }),
+      apiKey: raw.openai?.apiKey,
       model: raw.openai?.model ?? DEFAULT_OPENAI_MODEL,
       voice: raw.openai?.voice ?? DEFAULT_OPENAI_VOICE,
     },
@@ -539,13 +532,6 @@ function formatTtsProviderError(provider: TtsProvider, err: unknown): string {
   return `${provider}: ${error.message}`;
 }
 
-function buildTtsFailureResult(errors: string[]): { success: false; error: string } {
-  return {
-    success: false,
-    error: `TTS conversion failed: ${errors.join("; ") || "no providers available"}`,
-  };
-}
-
 export async function textToSpeech(params: {
   text: string;
   cfg: OpenClawConfig;
@@ -710,7 +696,10 @@ export async function textToSpeech(params: {
     }
   }
 
-  return buildTtsFailureResult(errors);
+  return {
+    success: false,
+    error: `TTS conversion failed: ${errors.join("; ") || "no providers available"}`,
+  };
 }
 
 export async function textToSpeechTelephony(params: {
@@ -796,7 +785,10 @@ export async function textToSpeechTelephony(params: {
     }
   }
 
-  return buildTtsFailureResult(errors);
+  return {
+    success: false,
+    error: `TTS conversion failed: ${errors.join("; ") || "no providers available"}`,
+  };
 }
 
 export async function maybeApplyTtsToPayload(params: {

@@ -1,12 +1,6 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { PluginLogger } from "openclaw/plugin-sdk";
-import { ACPX_PINNED_VERSION, ACPX_PLUGIN_ROOT, buildAcpxLocalInstallCommand } from "./config.js";
-import {
-  resolveSpawnFailure,
-  type SpawnCommandOptions,
-  spawnAndCollect,
-} from "./runtime-internals/process.js";
+import { ACPX_LOCAL_INSTALL_COMMAND, ACPX_PINNED_VERSION, ACPX_PLUGIN_ROOT } from "./config.js";
+import { resolveSpawnFailure, spawnAndCollect } from "./runtime-internals/process.js";
 
 const SEMVER_PATTERN = /\b\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\b/;
 
@@ -14,13 +8,13 @@ export type AcpxVersionCheckResult =
   | {
       ok: true;
       version: string;
-      expectedVersion?: string;
+      expectedVersion: string;
     }
   | {
       ok: false;
       reason: "missing-command" | "missing-version" | "version-mismatch" | "execution-failed";
       message: string;
-      expectedVersion?: string;
+      expectedVersion: string;
       installCommand: string;
       installedVersion?: string;
     };
@@ -31,103 +25,18 @@ function extractVersion(stdout: string, stderr: string): string | null {
   return match?.[0] ?? null;
 }
 
-function isExpectedVersionConfigured(value: string | undefined): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function supportsPathResolution(command: string): boolean {
-  return path.isAbsolute(command) || command.includes("/") || command.includes("\\");
-}
-
-function isUnsupportedVersionProbe(stdout: string, stderr: string): boolean {
-  const combined = `${stdout}\n${stderr}`.toLowerCase();
-  return combined.includes("unknown option") && combined.includes("--version");
-}
-
-function resolveVersionFromPackage(command: string, cwd: string): string | null {
-  if (!supportsPathResolution(command)) {
-    return null;
-  }
-  const commandPath = path.isAbsolute(command) ? command : path.resolve(cwd, command);
-  let current: string;
-  try {
-    current = path.dirname(fs.realpathSync(commandPath));
-  } catch {
-    return null;
-  }
-  while (true) {
-    const packageJsonPath = path.join(current, "package.json");
-    try {
-      const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
-        name?: unknown;
-        version?: unknown;
-      };
-      if (parsed.name === "acpx" && typeof parsed.version === "string" && parsed.version.trim()) {
-        return parsed.version.trim();
-      }
-    } catch {
-      // no-op; continue walking up
-    }
-    const parent = path.dirname(current);
-    if (parent === current) {
-      return null;
-    }
-    current = parent;
-  }
-}
-
-function resolveVersionCheckResult(params: {
-  expectedVersion?: string;
-  installedVersion: string;
-  installCommand: string;
-}): AcpxVersionCheckResult {
-  if (params.expectedVersion && params.installedVersion !== params.expectedVersion) {
-    return {
-      ok: false,
-      reason: "version-mismatch",
-      message: `acpx version mismatch: found ${params.installedVersion}, expected ${params.expectedVersion}`,
-      expectedVersion: params.expectedVersion,
-      installCommand: params.installCommand,
-      installedVersion: params.installedVersion,
-    };
-  }
-  return {
-    ok: true,
-    version: params.installedVersion,
-    expectedVersion: params.expectedVersion,
-  };
-}
-
-export async function checkAcpxVersion(params: {
+export async function checkPinnedAcpxVersion(params: {
   command: string;
   cwd?: string;
   expectedVersion?: string;
-  spawnOptions?: SpawnCommandOptions;
 }): Promise<AcpxVersionCheckResult> {
-  const expectedVersion = params.expectedVersion?.trim() || undefined;
-  const installCommand = buildAcpxLocalInstallCommand(expectedVersion ?? ACPX_PINNED_VERSION);
+  const expectedVersion = params.expectedVersion ?? ACPX_PINNED_VERSION;
   const cwd = params.cwd ?? ACPX_PLUGIN_ROOT;
-  const hasExpectedVersion = isExpectedVersionConfigured(expectedVersion);
-  const probeArgs = hasExpectedVersion ? ["--version"] : ["--help"];
-  const spawnParams = {
+  const result = await spawnAndCollect({
     command: params.command,
-    args: probeArgs,
+    args: ["--version"],
     cwd,
-  };
-  let result: Awaited<ReturnType<typeof spawnAndCollect>>;
-  try {
-    result = params.spawnOptions
-      ? await spawnAndCollect(spawnParams, params.spawnOptions)
-      : await spawnAndCollect(spawnParams);
-  } catch (error) {
-    return {
-      ok: false,
-      reason: "execution-failed",
-      message: error instanceof Error ? error.message : String(error),
-      expectedVersion,
-      installCommand,
-    };
-  }
+  });
 
   if (result.error) {
     const spawnFailure = resolveSpawnFailure(result.error, cwd);
@@ -137,7 +46,7 @@ export async function checkAcpxVersion(params: {
         reason: "missing-command",
         message: `acpx command not found at ${params.command}`,
         expectedVersion,
-        installCommand,
+        installCommand: ACPX_LOCAL_INSTALL_COMMAND,
       };
     }
     return {
@@ -145,34 +54,18 @@ export async function checkAcpxVersion(params: {
       reason: "execution-failed",
       message: result.error.message,
       expectedVersion,
-      installCommand,
+      installCommand: ACPX_LOCAL_INSTALL_COMMAND,
     };
   }
 
   if ((result.code ?? 0) !== 0) {
-    if (hasExpectedVersion && isUnsupportedVersionProbe(result.stdout, result.stderr)) {
-      const installedVersion = resolveVersionFromPackage(params.command, cwd);
-      if (installedVersion) {
-        return resolveVersionCheckResult({ expectedVersion, installedVersion, installCommand });
-      }
-    }
     const stderr = result.stderr.trim();
     return {
       ok: false,
       reason: "execution-failed",
-      message:
-        stderr ||
-        `acpx ${hasExpectedVersion ? "--version" : "--help"} failed with code ${result.code ?? "unknown"}`,
+      message: stderr || `acpx --version failed with code ${result.code ?? "unknown"}`,
       expectedVersion,
-      installCommand,
-    };
-  }
-
-  if (!hasExpectedVersion) {
-    return {
-      ok: true,
-      version: "unknown",
-      expectedVersion,
+      installCommand: ACPX_LOCAL_INSTALL_COMMAND,
     };
   }
 
@@ -183,22 +76,35 @@ export async function checkAcpxVersion(params: {
       reason: "missing-version",
       message: "acpx --version output did not include a parseable version",
       expectedVersion,
-      installCommand,
+      installCommand: ACPX_LOCAL_INSTALL_COMMAND,
     };
   }
 
-  return resolveVersionCheckResult({ expectedVersion, installedVersion, installCommand });
+  if (installedVersion !== expectedVersion) {
+    return {
+      ok: false,
+      reason: "version-mismatch",
+      message: `acpx version mismatch: found ${installedVersion}, expected ${expectedVersion}`,
+      expectedVersion,
+      installCommand: ACPX_LOCAL_INSTALL_COMMAND,
+      installedVersion,
+    };
+  }
+
+  return {
+    ok: true,
+    version: installedVersion,
+    expectedVersion,
+  };
 }
 
 let pendingEnsure: Promise<void> | null = null;
 
-export async function ensureAcpx(params: {
+export async function ensurePinnedAcpx(params: {
   command: string;
   logger?: PluginLogger;
   pluginRoot?: string;
   expectedVersion?: string;
-  allowInstall?: boolean;
-  spawnOptions?: SpawnCommandOptions;
 }): Promise<void> {
   if (pendingEnsure) {
     return await pendingEnsure;
@@ -206,21 +112,15 @@ export async function ensureAcpx(params: {
 
   pendingEnsure = (async () => {
     const pluginRoot = params.pluginRoot ?? ACPX_PLUGIN_ROOT;
-    const expectedVersion = params.expectedVersion?.trim() || undefined;
-    const installVersion = expectedVersion ?? ACPX_PINNED_VERSION;
-    const allowInstall = params.allowInstall ?? true;
+    const expectedVersion = params.expectedVersion ?? ACPX_PINNED_VERSION;
 
-    const precheck = await checkAcpxVersion({
+    const precheck = await checkPinnedAcpxVersion({
       command: params.command,
       cwd: pluginRoot,
       expectedVersion,
-      spawnOptions: params.spawnOptions,
     });
     if (precheck.ok) {
       return;
-    }
-    if (!allowInstall) {
-      throw new Error(precheck.message);
     }
 
     params.logger?.warn(
@@ -229,7 +129,7 @@ export async function ensureAcpx(params: {
 
     const install = await spawnAndCollect({
       command: "npm",
-      args: ["install", "--omit=dev", "--no-save", `acpx@${installVersion}`],
+      args: ["install", "--omit=dev", "--no-save", `acpx@${expectedVersion}`],
       cwd: pluginRoot,
     });
 
@@ -248,11 +148,10 @@ export async function ensureAcpx(params: {
       throw new Error(`failed to install plugin-local acpx: ${detail}`);
     }
 
-    const postcheck = await checkAcpxVersion({
+    const postcheck = await checkPinnedAcpxVersion({
       command: params.command,
       cwd: pluginRoot,
       expectedVersion,
-      spawnOptions: params.spawnOptions,
     });
 
     if (!postcheck.ok) {

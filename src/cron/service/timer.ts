@@ -1,9 +1,7 @@
 import type { CronConfig, CronRetryOn } from "../../config/types.cron.js";
-import { isCronSystemEvent } from "../../infra/heartbeat-events-filter.js";
 import type { HeartbeatRunResult } from "../../infra/heartbeat-wake.js";
 import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
 import { resolveCronDeliveryPlan } from "../delivery.js";
-import { shouldEnqueueCronMainSummary } from "../heartbeat-policy.js";
 import { sweepCronRunSessions } from "../session-reaper.js";
 import type {
   CronDeliveryStatus,
@@ -17,7 +15,6 @@ import {
   computeJobNextRunAtMs,
   nextWakeAtMs,
   recomputeNextRunsForMaintenance,
-  recordScheduleComputeError,
   resolveJobPayloadTextForMain,
 } from "./jobs.js";
 import { locked } from "./locked.js";
@@ -190,14 +187,7 @@ function clampNonNegativeInt(value: unknown, fallback: number): number {
 function resolveFailureAlert(
   state: CronServiceState,
   job: CronJob,
-): {
-  after: number;
-  cooldownMs: number;
-  channel: CronMessageChannel;
-  to?: string;
-  mode?: "announce" | "webhook";
-  accountId?: string;
-} | null {
+): { after: number; cooldownMs: number; channel: CronMessageChannel; to?: string } | null {
   const globalConfig = state.deps.cronConfig?.failureAlert;
   const jobConfig = job.failureAlert === false ? undefined : job.failureAlert;
 
@@ -207,9 +197,6 @@ function resolveFailureAlert(
   if (!jobConfig && globalConfig?.enabled !== true) {
     return null;
   }
-
-  const mode = jobConfig?.mode ?? globalConfig?.mode;
-  const explicitTo = normalizeTo(jobConfig?.to);
 
   return {
     after: clampPositiveInt(jobConfig?.after ?? globalConfig?.after, DEFAULT_FAILURE_ALERT_AFTER),
@@ -221,9 +208,7 @@ function resolveFailureAlert(
       normalizeCronMessageChannel(jobConfig?.channel) ??
       normalizeCronMessageChannel(job.delivery?.channel) ??
       "last",
-    to: mode === "webhook" ? explicitTo : (explicitTo ?? normalizeTo(job.delivery?.to)),
-    mode,
-    accountId: jobConfig?.accountId ?? globalConfig?.accountId,
+    to: normalizeTo(jobConfig?.to) ?? normalizeTo(job.delivery?.to),
   };
 }
 
@@ -235,8 +220,6 @@ function emitFailureAlert(
     consecutiveErrors: number;
     channel: CronMessageChannel;
     to?: string;
-    mode?: "announce" | "webhook";
-    accountId?: string;
   },
 ) {
   const safeJobName = params.job.name || params.job.id;
@@ -253,8 +236,6 @@ function emitFailureAlert(
         text,
         channel: params.channel,
         to: params.to,
-        mode: params.mode,
-        accountId: params.accountId,
       })
       .catch((err) => {
         state.deps.log.warn(
@@ -305,26 +286,19 @@ export function applyJobResult(
     job.state.consecutiveErrors = (job.state.consecutiveErrors ?? 0) + 1;
     const alertConfig = resolveFailureAlert(state, job);
     if (alertConfig && job.state.consecutiveErrors >= alertConfig.after) {
-      const isBestEffort =
-        job.delivery?.bestEffort === true ||
-        (job.payload.kind === "agentTurn" && job.payload.bestEffortDeliver === true);
-      if (!isBestEffort) {
-        const now = state.deps.nowMs();
-        const lastAlert = job.state.lastFailureAlertAtMs;
-        const inCooldown =
-          typeof lastAlert === "number" && now - lastAlert < Math.max(0, alertConfig.cooldownMs);
-        if (!inCooldown) {
-          emitFailureAlert(state, {
-            job,
-            error: result.error,
-            consecutiveErrors: job.state.consecutiveErrors,
-            channel: alertConfig.channel,
-            to: alertConfig.to,
-            mode: alertConfig.mode,
-            accountId: alertConfig.accountId,
-          });
-          job.state.lastFailureAlertAtMs = now;
-        }
+      const now = state.deps.nowMs();
+      const lastAlert = job.state.lastFailureAlertAtMs;
+      const inCooldown =
+        typeof lastAlert === "number" && now - lastAlert < Math.max(0, alertConfig.cooldownMs);
+      if (!inCooldown) {
+        emitFailureAlert(state, {
+          job,
+          error: result.error,
+          consecutiveErrors: job.state.consecutiveErrors,
+          channel: alertConfig.channel,
+          to: alertConfig.to,
+        });
+        job.state.lastFailureAlertAtMs = now;
       }
     }
   } else {
@@ -382,15 +356,7 @@ export function applyJobResult(
     } else if (result.status === "error" && job.enabled) {
       // Apply exponential backoff for errored jobs to prevent retry storms.
       const backoff = errorBackoffMs(job.state.consecutiveErrors ?? 1);
-      let normalNext: number | undefined;
-      try {
-        normalNext = computeJobNextRunAtMs(job, result.endedAt);
-      } catch (err) {
-        // If the schedule expression/timezone throws (croner edge cases),
-        // record the schedule error (auto-disables after repeated failures)
-        // and fall back to backoff-only schedule so the state update is not lost.
-        recordScheduleComputeError({ state, job, err });
-      }
+      const normalNext = computeJobNextRunAtMs(job, result.endedAt);
       const backoffNext = result.endedAt + backoff;
       // Use whichever is later: the natural next run or the backoff delay.
       job.state.nextRunAtMs =
@@ -405,15 +371,7 @@ export function applyJobResult(
         "cron: applying error backoff",
       );
     } else if (job.enabled) {
-      let naturalNext: number | undefined;
-      try {
-        naturalNext = computeJobNextRunAtMs(job, result.endedAt);
-      } catch (err) {
-        // If the schedule expression/timezone throws (croner edge cases),
-        // record the schedule error (auto-disables after repeated failures)
-        // so a persistent throw doesn't cause a MIN_REFIRE_GAP_MS hot loop.
-        recordScheduleComputeError({ state, job, err });
-      }
+      const naturalNext = computeJobNextRunAtMs(job, result.endedAt);
       if (job.schedule.kind === "cron") {
         // Safety net: ensure the next fire is at least MIN_REFIRE_GAP_MS
         // after the current run ended.  Prevents spin-loops when the
@@ -441,10 +399,6 @@ function applyOutcomeToStoredJob(state: CronServiceState, result: TimedCronRunOu
   const jobs = store.jobs;
   const job = jobs.find((entry) => entry.id === result.jobId);
   if (!job) {
-    state.deps.log.warn(
-      { jobId: result.jobId },
-      "cron: applyOutcomeToStoredJob — job not found after forceReload, result discarded",
-    );
     return;
   }
 
@@ -492,18 +446,9 @@ export function armTimer(state: CronServiceState) {
   }
   const now = state.deps.nowMs();
   const delay = Math.max(nextAt - now, 0);
-  // Floor: when the next wake time is in the past (delay === 0), enforce a
-  // minimum delay to prevent a tight setTimeout(0) loop.  This can happen
-  // when a job has a stuck runningAtMs marker and a past-due nextRunAtMs:
-  // findDueJobs skips the job (blocked by runningAtMs), while
-  // recomputeNextRunsForMaintenance intentionally does not advance the
-  // past-due nextRunAtMs (per #13992).  The finally block in onTimer then
-  // re-invokes armTimer with delay === 0, creating an infinite hot-loop
-  // that saturates the event loop and fills the log file to its size cap.
-  const flooredDelay = delay === 0 ? MIN_REFIRE_GAP_MS : delay;
   // Wake at least once a minute to avoid schedule drift and recover quickly
   // when the process was paused or wall-clock time jumps.
-  const clampedDelay = Math.min(flooredDelay, MAX_TIMER_DELAY_MS);
+  const clampedDelay = Math.min(delay, MAX_TIMER_DELAY_MS);
   // Intentionally avoid an `async` timer callback:
   // Vitest's fake-timer helpers can await async callbacks, which would block
   // tests that simulate long-running jobs. Runtime behavior is unchanged.
@@ -645,11 +590,7 @@ export async function onTimer(state: CronServiceState) {
         await persist(state);
       });
     }
-  } finally {
     // Piggyback session reaper on timer tick (self-throttled to every 5 min).
-    // Placed in `finally` so the reaper runs even when a long-running job keeps
-    // `state.running` true across multiple timer ticks — the early return at the
-    // top of onTimer would otherwise skip the reaper indefinitely.
     const storePaths = new Set<string>();
     if (state.deps.resolveSessionStorePath) {
       const defaultAgentId = state.deps.defaultAgentId ?? DEFAULT_AGENT_ID;
@@ -681,7 +622,7 @@ export async function onTimer(state: CronServiceState) {
         }
       }
     }
-
+  } finally {
     state.running = false;
     armTimer(state);
   }
@@ -987,23 +928,16 @@ export async function executeJobCore(
   // ran. If delivery was attempted but final ack is uncertain, suppress the
   // main summary to avoid duplicate user-facing sends.
   // See: https://github.com/openclaw/openclaw/issues/15692
-  //
-  // Also suppress heartbeat-only summaries (e.g. "HEARTBEAT_OK") — these
-  // are internal ack tokens that should never leak into user conversations.
-  // See: https://github.com/openclaw/openclaw/issues/32013
   const summaryText = res.summary?.trim();
   const deliveryPlan = resolveCronDeliveryPlan(job);
   const suppressMainSummary =
     res.status === "error" && res.errorKind === "delivery-target" && deliveryPlan.requested;
   if (
-    shouldEnqueueCronMainSummary({
-      summaryText,
-      deliveryRequested: deliveryPlan.requested,
-      delivered: res.delivered,
-      deliveryAttempted: res.deliveryAttempted,
-      suppressMainSummary,
-      isCronSystemEvent,
-    })
+    summaryText &&
+    deliveryPlan.requested &&
+    !res.delivered &&
+    res.deliveryAttempted !== true &&
+    !suppressMainSummary
   ) {
     const prefix = "Cron";
     const label =

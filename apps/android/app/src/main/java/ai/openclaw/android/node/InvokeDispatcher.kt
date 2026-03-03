@@ -10,6 +10,7 @@ import ai.openclaw.android.protocol.OpenClawDeviceCommand
 import ai.openclaw.android.protocol.OpenClawLocationCommand
 import ai.openclaw.android.protocol.OpenClawMotionCommand
 import ai.openclaw.android.protocol.OpenClawNotificationsCommand
+import ai.openclaw.android.protocol.OpenClawPhotosCommand
 import ai.openclaw.android.protocol.OpenClawScreenCommand
 import ai.openclaw.android.protocol.OpenClawSmsCommand
 import ai.openclaw.android.protocol.OpenClawSystemCommand
@@ -145,9 +146,7 @@ class InvokeDispatcher(
       OpenClawSystemCommand.Notify.rawValue -> systemHandler.handleSystemNotify(paramsJson)
 
       // Photos command
-      ai.openclaw.android.protocol.OpenClawPhotosCommand.Latest.rawValue -> photosHandler.handlePhotosLatest(
-        paramsJson,
-      )
+      OpenClawPhotosCommand.Latest.rawValue -> photosHandler.handlePhotosLatest(paramsJson)
 
       // Contacts command
       OpenClawContactsCommand.Search.rawValue -> contactsHandler.handleContactsSearch(paramsJson)

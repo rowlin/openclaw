@@ -1,6 +1,6 @@
 import { parseNodeList, parsePairingList } from "../../shared/node-list-parse.js";
 import type { NodeListNode } from "../../shared/node-list-types.js";
-import { resolveNodeFromNodeList, resolveNodeIdFromNodeList } from "../../shared/node-resolve.js";
+import { resolveNodeIdFromCandidates } from "../../shared/node-match.js";
 import { callGatewayTool, type GatewayCallOptions } from "./gateway.js";
 
 export type { NodeListNode };
@@ -142,10 +142,17 @@ export function resolveNodeIdFromList(
   query?: string,
   allowDefault = false,
 ): string {
-  return resolveNodeIdFromNodeList(nodes, query, {
-    allowDefault,
-    pickDefaultNode: pickDefaultNode,
-  });
+  const q = String(query ?? "").trim();
+  if (!q) {
+    if (allowDefault) {
+      const picked = pickDefaultNode(nodes);
+      if (picked) {
+        return picked.nodeId;
+      }
+    }
+    throw new Error("node required");
+  }
+  return resolveNodeIdFromCandidates(nodes, q);
 }
 
 export async function resolveNodeId(
@@ -153,17 +160,6 @@ export async function resolveNodeId(
   query?: string,
   allowDefault = false,
 ) {
-  return (await resolveNode(opts, query, allowDefault)).nodeId;
-}
-
-export async function resolveNode(
-  opts: GatewayCallOptions,
-  query?: string,
-  allowDefault = false,
-): Promise<NodeListNode> {
   const nodes = await loadNodes(opts);
-  return resolveNodeFromNodeList(nodes, query, {
-    allowDefault,
-    pickDefaultNode: pickDefaultNode,
-  });
+  return resolveNodeIdFromList(nodes, query, allowDefault);
 }

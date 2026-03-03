@@ -155,24 +155,20 @@ describe("sendPoll channel normalization", () => {
   });
 });
 
-const setMattermostGatewayRegistry = () => {
-  setRegistry(
-    createTestRegistry([
-      {
-        pluginId: "mattermost",
-        source: "test",
-        plugin: {
-          ...createMattermostLikePlugin({ onSendText: () => {} }),
-          outbound: { deliveryMode: "gateway" },
-        },
-      },
-    ]),
-  );
-};
-
 describe("gateway url override hardening", () => {
   it("drops gateway url overrides in backend mode (SSRF hardening)", async () => {
-    setMattermostGatewayRegistry();
+    setRegistry(
+      createTestRegistry([
+        {
+          pluginId: "mattermost",
+          source: "test",
+          plugin: {
+            ...createMattermostLikePlugin({ onSendText: () => {} }),
+            outbound: { deliveryMode: "gateway" },
+          },
+        },
+      ]),
+    );
 
     callGatewayMock.mockResolvedValueOnce({ messageId: "m1" });
     await sendMessage({
@@ -200,7 +196,18 @@ describe("gateway url override hardening", () => {
   });
 
   it("forwards explicit agentId in gateway send params", async () => {
-    setMattermostGatewayRegistry();
+    setRegistry(
+      createTestRegistry([
+        {
+          pluginId: "mattermost",
+          source: "test",
+          plugin: {
+            ...createMattermostLikePlugin({ onSendText: () => {} }),
+            outbound: { deliveryMode: "gateway" },
+          },
+        },
+      ]),
+    );
 
     callGatewayMock.mockResolvedValueOnce({ messageId: "m-agent" });
     await sendMessage({

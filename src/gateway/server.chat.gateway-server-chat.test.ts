@@ -4,7 +4,6 @@ import path from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { WebSocket } from "ws";
 import { emitAgentEvent, registerAgentRunContext } from "../infra/agent-events.js";
-import { extractFirstTextBlock } from "../shared/chat-message-content.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import {
   connectOk,
@@ -42,105 +41,6 @@ async function waitFor(condition: () => boolean, timeoutMs = 250) {
 }
 
 describe("gateway server chat", () => {
-  const buildNoReplyHistoryFixture = (includeMixedAssistant = false) => [
-    {
-      role: "user",
-      content: [{ type: "text", text: "hello" }],
-      timestamp: 1,
-    },
-    {
-      role: "assistant",
-      content: [{ type: "text", text: "NO_REPLY" }],
-      timestamp: 2,
-    },
-    {
-      role: "assistant",
-      content: [{ type: "text", text: "real reply" }],
-      timestamp: 3,
-    },
-    {
-      role: "assistant",
-      text: "real text field reply",
-      content: "NO_REPLY",
-      timestamp: 4,
-    },
-    {
-      role: "user",
-      content: [{ type: "text", text: "NO_REPLY" }],
-      timestamp: 5,
-    },
-    ...(includeMixedAssistant
-      ? [
-          {
-            role: "assistant",
-            content: [
-              { type: "text", text: "NO_REPLY" },
-              { type: "image", source: { type: "base64", media_type: "image/png", data: "abc" } },
-            ],
-            timestamp: 6,
-          },
-        ]
-      : []),
-  ];
-
-  const loadChatHistoryWithMessages = async (
-    messages: Array<Record<string, unknown>>,
-  ): Promise<unknown[]> => {
-    return withMainSessionStore(async (dir) => {
-      const lines = messages.map((message) => JSON.stringify({ message }));
-      await fs.writeFile(path.join(dir, "sess-main.jsonl"), lines.join("\n"), "utf-8");
-
-      const res = await rpcReq<{ messages?: unknown[] }>(ws, "chat.history", {
-        sessionKey: "main",
-      });
-      expect(res.ok).toBe(true);
-      return res.payload?.messages ?? [];
-    });
-  };
-
-  const withMainSessionStore = async <T>(run: (dir: string) => Promise<T>): Promise<T> => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
-    try {
-      testState.sessionStorePath = path.join(dir, "sessions.json");
-      await writeSessionStore({
-        entries: {
-          main: {
-            sessionId: "sess-main",
-            updatedAt: Date.now(),
-          },
-        },
-      });
-      return await run(dir);
-    } finally {
-      testState.sessionStorePath = undefined;
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-  };
-
-  const collectHistoryTextValues = (historyMessages: unknown[]) =>
-    historyMessages
-      .map((message) => {
-        if (message && typeof message === "object") {
-          const entry = message as { text?: unknown };
-          if (typeof entry.text === "string") {
-            return entry.text;
-          }
-        }
-        return extractFirstTextBlock(message);
-      })
-      .filter((value): value is string => typeof value === "string");
-
-  const expectAgentWaitTimeout = (res: Awaited<ReturnType<typeof rpcReq>>) => {
-    expect(res.ok).toBe(true);
-    expect(res.payload?.status).toBe("timeout");
-  };
-
-  const expectAgentWaitStartedAt = (res: Awaited<ReturnType<typeof rpcReq>>, startedAt: number) => {
-    expect(res.ok).toBe(true);
-    expect(res.payload?.status).toBe("ok");
-    expect(res.payload?.startedAt).toBe(startedAt);
-  };
-
   test("sanitizes inbound chat.send message text and rejects null bytes", async () => {
     const nullByteRes = await rpcReq(ws, "chat.send", {
       sessionKey: "main",
@@ -390,8 +290,23 @@ describe("gateway server chat", () => {
       });
       expect(defaultRes.ok).toBe(true);
       const defaultMsgs = defaultRes.payload?.messages ?? [];
+      const firstContentText = (msg: unknown): string | undefined => {
+        if (!msg || typeof msg !== "object") {
+          return undefined;
+        }
+        const content = (msg as { content?: unknown }).content;
+        if (!Array.isArray(content) || content.length === 0) {
+          return undefined;
+        }
+        const first = content[0];
+        if (!first || typeof first !== "object") {
+          return undefined;
+        }
+        const text = (first as { text?: unknown }).text;
+        return typeof text === "string" ? text : undefined;
+      };
       expect(defaultMsgs.length).toBe(200);
-      expect(extractFirstTextBlock(defaultMsgs[0])).toBe("m100");
+      expect(firstContentText(defaultMsgs[0])).toBe("m100");
     } finally {
       testState.agentConfig = undefined;
       testState.sessionStorePath = undefined;
@@ -403,18 +318,19 @@ describe("gateway server chat", () => {
     }
   });
 
-  test("chat.history hides assistant NO_REPLY-only entries", async () => {
-    const historyMessages = await loadChatHistoryWithMessages(buildNoReplyHistoryFixture());
-    const textValues = collectHistoryTextValues(historyMessages);
-    // The NO_REPLY assistant message (content block) should be dropped.
-    // The assistant with text="real text field reply" + content="NO_REPLY" stays
-    // because entry.text takes precedence over entry.content for the silent check.
-    // The user message with NO_REPLY text is preserved (only assistant filtered).
-    expect(textValues).toEqual(["hello", "real reply", "real text field reply", "NO_REPLY"]);
-  });
-
   test("routes chat.send slash commands without agent runs", async () => {
-    await withMainSessionStore(async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
+    try {
+      testState.sessionStorePath = path.join(dir, "sessions.json");
+      await writeSessionStore({
+        entries: {
+          main: {
+            sessionId: "sess-main",
+            updatedAt: Date.now(),
+          },
+        },
+      });
+
       const spy = vi.mocked(agentCommand);
       const callsBefore = spy.mock.calls.length;
       const eventPromise = onceMessage(
@@ -434,36 +350,10 @@ describe("gateway server chat", () => {
       expect(res.ok).toBe(true);
       await eventPromise;
       expect(spy.mock.calls.length).toBe(callsBefore);
-    });
-  });
-
-  test("chat.history hides assistant NO_REPLY-only entries and keeps mixed-content assistant entries", async () => {
-    const historyMessages = await loadChatHistoryWithMessages(buildNoReplyHistoryFixture(true));
-    const roleAndText = historyMessages
-      .map((message) => {
-        const role =
-          message &&
-          typeof message === "object" &&
-          typeof (message as { role?: unknown }).role === "string"
-            ? (message as { role: string }).role
-            : "unknown";
-        const text =
-          message &&
-          typeof message === "object" &&
-          typeof (message as { text?: unknown }).text === "string"
-            ? (message as { text: string }).text
-            : (extractFirstTextBlock(message) ?? "");
-        return `${role}:${text}`;
-      })
-      .filter((entry) => entry !== "unknown:");
-
-    expect(roleAndText).toEqual([
-      "user:hello",
-      "assistant:real reply",
-      "assistant:real text field reply",
-      "user:NO_REPLY",
-      "assistant:NO_REPLY",
-    ]);
+    } finally {
+      testState.sessionStorePath = undefined;
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("agent events include sessionKey and agent.wait covers lifecycle flows", async () => {
@@ -533,7 +423,9 @@ describe("gateway server chat", () => {
         });
 
         const res = await waitP;
-        expectAgentWaitStartedAt(res, 200);
+        expect(res.ok).toBe(true);
+        expect(res.payload?.status).toBe("ok");
+        expect(res.payload?.startedAt).toBe(200);
       }
 
       {
@@ -557,7 +449,8 @@ describe("gateway server chat", () => {
           runId: "run-wait-3",
           timeoutMs: 30,
         });
-        expectAgentWaitTimeout(res);
+        expect(res.ok).toBe(true);
+        expect(res.payload?.status).toBe("timeout");
       }
 
       {
@@ -575,7 +468,8 @@ describe("gateway server chat", () => {
         });
 
         const res = await waitP;
-        expectAgentWaitTimeout(res);
+        expect(res.ok).toBe(true);
+        expect(res.payload?.status).toBe("timeout");
       }
 
       {
@@ -599,7 +493,9 @@ describe("gateway server chat", () => {
         });
 
         const res = await waitP;
-        expectAgentWaitStartedAt(res, 123);
+        expect(res.ok).toBe(true);
+        expect(res.payload?.status).toBe("ok");
+        expect(res.payload?.startedAt).toBe(123);
         expect(res.payload?.endedAt).toBe(456);
       }
     } finally {

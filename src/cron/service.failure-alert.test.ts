@@ -4,8 +4,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CronService } from "./service.js";
 
-type CronServiceParams = ConstructorParameters<typeof CronService>[0];
-
 const noopLogger = {
   debug: vi.fn(),
   info: vi.fn(),
@@ -21,24 +19,6 @@ async function makeStorePath() {
       await fs.rm(dir, { recursive: true, force: true });
     },
   };
-}
-
-function createFailureAlertCron(params: {
-  storePath: string;
-  cronConfig?: CronServiceParams["cronConfig"];
-  runIsolatedAgentJob: NonNullable<CronServiceParams["runIsolatedAgentJob"]>;
-  sendCronFailureAlert: NonNullable<CronServiceParams["sendCronFailureAlert"]>;
-}) {
-  return new CronService({
-    storePath: params.storePath,
-    cronEnabled: true,
-    cronConfig: params.cronConfig,
-    log: noopLogger,
-    enqueueSystemEvent: vi.fn(),
-    requestHeartbeatNow: vi.fn(),
-    runIsolatedAgentJob: params.runIsolatedAgentJob,
-    sendCronFailureAlert: params.sendCronFailureAlert,
-  });
 }
 
 describe("CronService failure alerts", () => {
@@ -63,8 +43,9 @@ describe("CronService failure alerts", () => {
       error: "wrong model id",
     }));
 
-    const cron = createFailureAlertCron({
+    const cron = new CronService({
       storePath: store.storePath,
+      cronEnabled: true,
       cronConfig: {
         failureAlert: {
           enabled: true,
@@ -72,6 +53,9 @@ describe("CronService failure alerts", () => {
           cooldownMs: 60_000,
         },
       },
+      log: noopLogger,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeatNow: vi.fn(),
       runIsolatedAgentJob,
       sendCronFailureAlert,
     });
@@ -125,13 +109,17 @@ describe("CronService failure alerts", () => {
       error: "timeout",
     }));
 
-    const cron = createFailureAlertCron({
+    const cron = new CronService({
       storePath: store.storePath,
+      cronEnabled: true,
       cronConfig: {
         failureAlert: {
           enabled: false,
         },
       },
+      log: noopLogger,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeatNow: vi.fn(),
       runIsolatedAgentJob,
       sendCronFailureAlert,
     });
@@ -173,14 +161,18 @@ describe("CronService failure alerts", () => {
       error: "auth error",
     }));
 
-    const cron = createFailureAlertCron({
+    const cron = new CronService({
       storePath: store.storePath,
+      cronEnabled: true,
       cronConfig: {
         failureAlert: {
           enabled: true,
           after: 1,
         },
       },
+      log: noopLogger,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeatNow: vi.fn(),
       runIsolatedAgentJob,
       sendCronFailureAlert,
     });
@@ -199,70 +191,6 @@ describe("CronService failure alerts", () => {
     await cron.run(job.id, "force");
     await cron.run(job.id, "force");
     expect(sendCronFailureAlert).not.toHaveBeenCalled();
-
-    cron.stop();
-    await store.cleanup();
-  });
-
-  it("threads failure alert mode/accountId and skips best-effort jobs", async () => {
-    const store = await makeStorePath();
-    const sendCronFailureAlert = vi.fn(async () => undefined);
-    const runIsolatedAgentJob = vi.fn(async () => ({
-      status: "error" as const,
-      error: "temporary upstream error",
-    }));
-
-    const cron = createFailureAlertCron({
-      storePath: store.storePath,
-      cronConfig: {
-        failureAlert: {
-          enabled: true,
-          after: 1,
-          mode: "webhook",
-          accountId: "global-account",
-        },
-      },
-      runIsolatedAgentJob,
-      sendCronFailureAlert,
-    });
-
-    await cron.start();
-    const normalJob = await cron.add({
-      name: "normal alert job",
-      enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
-      sessionTarget: "isolated",
-      wakeMode: "next-heartbeat",
-      payload: { kind: "agentTurn", message: "run report" },
-      delivery: { mode: "announce", channel: "telegram", to: "19098680" },
-    });
-    const bestEffortJob = await cron.add({
-      name: "best effort alert job",
-      enabled: true,
-      schedule: { kind: "every", everyMs: 60_000 },
-      sessionTarget: "isolated",
-      wakeMode: "next-heartbeat",
-      payload: { kind: "agentTurn", message: "run report" },
-      delivery: {
-        mode: "announce",
-        channel: "telegram",
-        to: "19098680",
-        bestEffort: true,
-      },
-    });
-
-    await cron.run(normalJob.id, "force");
-    expect(sendCronFailureAlert).toHaveBeenCalledTimes(1);
-    expect(sendCronFailureAlert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        mode: "webhook",
-        accountId: "global-account",
-        to: undefined,
-      }),
-    );
-
-    await cron.run(bestEffortJob.id, "force");
-    expect(sendCronFailureAlert).toHaveBeenCalledTimes(1);
 
     cron.stop();
     await store.cleanup();

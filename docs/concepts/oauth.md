@@ -10,9 +10,7 @@ title: "OAuth"
 
 # OAuth
 
-OpenClaw supports “subscription auth” via OAuth for providers that offer it (notably **OpenAI Codex (ChatGPT OAuth)**). For Anthropic subscriptions, use the **setup-token** flow. Anthropic subscription use outside Claude Code has been restricted for some users in the past, so treat it as a user-choice risk and verify current Anthropic policy yourself. OpenAI Codex OAuth is explicitly supported for use in external tools like OpenClaw. This page explains:
-
-For Anthropic in production, API key auth is the safer recommended path over subscription setup-token auth.
+OpenClaw supports “subscription auth” via OAuth for providers that offer it (notably **OpenAI Codex (ChatGPT OAuth)**). For Anthropic subscriptions, use the **setup-token** flow. This page explains:
 
 - how the OAuth **token exchange** works (PKCE)
 - where tokens are **stored** (and why)
@@ -56,12 +54,6 @@ For static secret refs and runtime snapshot activation behavior, see [Secrets Ma
 
 ## Anthropic setup-token (subscription auth)
 
-<Warning>
-Anthropic setup-token support is technical compatibility, not a policy guarantee.
-Anthropic has blocked some subscription usage outside Claude Code in the past.
-Decide for yourself whether to use subscription auth, and verify Anthropic's current terms.
-</Warning>
-
 Run `claude setup-token` on any machine, then paste it into OpenClaw:
 
 ```bash
@@ -84,7 +76,7 @@ openclaw models status
 
 OpenClaw’s interactive login flows are implemented in `@mariozechner/pi-ai` and wired into the wizards/commands.
 
-### Anthropic setup-token
+### Anthropic (Claude Pro/Max) setup-token
 
 Flow shape:
 
@@ -95,8 +87,6 @@ Flow shape:
 The wizard path is `openclaw onboard` → auth choice `setup-token` (Anthropic).
 
 ### OpenAI Codex (ChatGPT OAuth)
-
-OpenAI Codex OAuth is explicitly supported for use outside the Codex CLI, including OpenClaw workflows.
 
 Flow shape (PKCE):
 

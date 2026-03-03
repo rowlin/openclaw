@@ -1,7 +1,6 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import { describe, expect, it } from "vitest";
-import { castAgentMessage } from "../../test-helpers/agent-message-fixtures.js";
 import { PRUNED_HISTORY_IMAGE_MARKER, pruneProcessedHistoryImages } from "./history-image-prune.js";
 
 describe("pruneProcessedHistoryImages", () => {
@@ -9,14 +8,14 @@ describe("pruneProcessedHistoryImages", () => {
 
   it("prunes image blocks from user messages that already have assistant replies", () => {
     const messages: AgentMessage[] = [
-      castAgentMessage({
+      {
         role: "user",
         content: [{ type: "text", text: "See /tmp/photo.png" }, { ...image }],
-      }),
-      castAgentMessage({
+      } as AgentMessage,
+      {
         role: "assistant",
         content: "got it",
-      }),
+      } as unknown as AgentMessage,
     ];
 
     const didMutate = pruneProcessedHistoryImages(messages);
@@ -32,10 +31,10 @@ describe("pruneProcessedHistoryImages", () => {
 
   it("does not prune latest user message when no assistant response exists yet", () => {
     const messages: AgentMessage[] = [
-      castAgentMessage({
+      {
         role: "user",
         content: [{ type: "text", text: "See /tmp/photo.png" }, { ...image }],
-      }),
+      } as AgentMessage,
     ];
 
     const didMutate = pruneProcessedHistoryImages(messages);
@@ -51,10 +50,10 @@ describe("pruneProcessedHistoryImages", () => {
 
   it("does not change messages when no assistant turn exists", () => {
     const messages: AgentMessage[] = [
-      castAgentMessage({
+      {
         role: "user",
         content: "noop",
-      }),
+      } as AgentMessage,
     ];
 
     const didMutate = pruneProcessedHistoryImages(messages);

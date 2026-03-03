@@ -39,6 +39,30 @@ enum ExecSystemRunCommandValidator {
     private static let posixInlineCommandFlags = Set(["-lc", "-c", "--command"])
     private static let powershellInlineCommandFlags = Set(["-c", "-command", "--command"])
 
+    private static let envOptionsWithValue = Set([
+        "-u",
+        "--unset",
+        "-c",
+        "--chdir",
+        "-s",
+        "--split-string",
+        "--default-signal",
+        "--ignore-signal",
+        "--block-signal",
+    ])
+    private static let envFlagOptions = Set(["-i", "--ignore-environment", "-0", "--null"])
+    private static let envInlineValuePrefixes = [
+        "-u",
+        "-c",
+        "-s",
+        "--unset=",
+        "--chdir=",
+        "--split-string=",
+        "--default-signal=",
+        "--ignore-signal=",
+        "--block-signal=",
+    ]
+
     private struct EnvUnwrapResult {
         let argv: [String]
         let usesModifiers: Bool
@@ -89,7 +113,7 @@ enum ExecSystemRunCommandValidator {
     }
 
     private static func hasEnvInlineValuePrefix(_ lowerToken: String) -> Bool {
-        ExecEnvOptions.inlineValuePrefixes.contains { lowerToken.hasPrefix($0) }
+        self.envInlineValuePrefixes.contains { lowerToken.hasPrefix($0) }
     }
 
     private static func unwrapEnvInvocationWithMetadata(_ argv: [String]) -> EnvUnwrapResult? {
@@ -124,12 +148,12 @@ enum ExecSystemRunCommandValidator {
 
             let lower = token.lowercased()
             let flag = lower.split(separator: "=", maxSplits: 1).first.map(String.init) ?? lower
-            if ExecEnvOptions.flagOnly.contains(flag) {
+            if self.envFlagOptions.contains(flag) {
                 usesModifiers = true
                 idx += 1
                 continue
             }
-            if ExecEnvOptions.withValue.contains(flag) {
+            if self.envOptionsWithValue.contains(flag) {
                 usesModifiers = true
                 if !lower.contains("=") {
                     expectsOptionValue = true
@@ -277,15 +301,10 @@ enum ExecSystemRunCommandValidator {
         return current
     }
 
-    private struct InlineCommandTokenMatch {
-        var tokenIndex: Int
-        var inlineCommand: String?
-    }
-
-    private static func findInlineCommandTokenMatch(
+    private static func resolveInlineCommandTokenIndex(
         _ argv: [String],
         flags: Set<String>,
-        allowCombinedC: Bool) -> InlineCommandTokenMatch?
+        allowCombinedC: Bool) -> Int?
     {
         var idx = 1
         while idx < argv.count {
@@ -299,33 +318,19 @@ enum ExecSystemRunCommandValidator {
                 break
             }
             if flags.contains(lower) {
-                return InlineCommandTokenMatch(tokenIndex: idx, inlineCommand: nil)
+                return idx + 1 < argv.count ? idx + 1 : nil
             }
             if allowCombinedC, let inlineOffset = self.combinedCommandInlineOffset(token) {
                 let inline = String(token.dropFirst(inlineOffset))
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                return InlineCommandTokenMatch(
-                    tokenIndex: idx,
-                    inlineCommand: inline.isEmpty ? nil : inline)
+                if !inline.isEmpty {
+                    return idx
+                }
+                return idx + 1 < argv.count ? idx + 1 : nil
             }
             idx += 1
         }
         return nil
-    }
-
-    private static func resolveInlineCommandTokenIndex(
-        _ argv: [String],
-        flags: Set<String>,
-        allowCombinedC: Bool) -> Int?
-    {
-        guard let match = self.findInlineCommandTokenMatch(argv, flags: flags, allowCombinedC: allowCombinedC) else {
-            return nil
-        }
-        if match.inlineCommand != nil {
-            return match.tokenIndex
-        }
-        let nextIndex = match.tokenIndex + 1
-        return nextIndex < argv.count ? nextIndex : nil
     }
 
     private static func combinedCommandInlineOffset(_ token: String) -> Int? {
@@ -366,14 +371,30 @@ enum ExecSystemRunCommandValidator {
         flags: Set<String>,
         allowCombinedC: Bool) -> String?
     {
-        guard let match = self.findInlineCommandTokenMatch(argv, flags: flags, allowCombinedC: allowCombinedC) else {
-            return nil
+        var idx = 1
+        while idx < argv.count {
+            let token = argv[idx].trimmingCharacters(in: .whitespacesAndNewlines)
+            if token.isEmpty {
+                idx += 1
+                continue
+            }
+            let lower = token.lowercased()
+            if lower == "--" {
+                break
+            }
+            if flags.contains(lower) {
+                return self.trimmedNonEmpty(idx + 1 < argv.count ? argv[idx + 1] : nil)
+            }
+            if allowCombinedC, let inlineOffset = self.combinedCommandInlineOffset(token) {
+                let inline = String(token.dropFirst(inlineOffset))
+                if let inlineValue = self.trimmedNonEmpty(inline) {
+                    return inlineValue
+                }
+                return self.trimmedNonEmpty(idx + 1 < argv.count ? argv[idx + 1] : nil)
+            }
+            idx += 1
         }
-        if let inlineCommand = match.inlineCommand {
-            return inlineCommand
-        }
-        let nextIndex = match.tokenIndex + 1
-        return self.trimmedNonEmpty(nextIndex < argv.count ? argv[nextIndex] : nil)
+        return nil
     }
 
     private static func extractCmdInlineCommand(_ argv: [String]) -> String? {

@@ -189,7 +189,19 @@ extension OnboardingView {
     }
 
     func featureRow(title: String, subtitle: String, systemImage: String) -> some View {
-        self.featureRowContent(title: title, subtitle: subtitle, systemImage: systemImage)
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 26)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     func featureActionRow(
@@ -198,22 +210,6 @@ extension OnboardingView {
         systemImage: String,
         buttonTitle: String,
         action: @escaping () -> Void) -> some View
-    {
-        self.featureRowContent(
-            title: title,
-            subtitle: subtitle,
-            systemImage: systemImage,
-            action: AnyView(
-                Button(buttonTitle, action: action)
-                    .buttonStyle(.link)
-                    .padding(.top, 2)))
-    }
-
-    private func featureRowContent(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        action: AnyView? = nil) -> some View
     {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: systemImage)
@@ -225,9 +221,9 @@ extension OnboardingView {
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if let action {
-                    action
-                }
+                Button(buttonTitle, action: action)
+                    .buttonStyle(.link)
+                    .padding(.top, 2)
             }
             Spacer(minLength: 0)
         }

@@ -284,32 +284,6 @@ async function closeAcpRuntimeForSession(params: {
   return undefined;
 }
 
-async function cleanupSessionBeforeMutation(params: {
-  cfg: ReturnType<typeof loadConfig>;
-  key: string;
-  target: ReturnType<typeof resolveGatewaySessionStoreTarget>;
-  entry: SessionEntry | undefined;
-  legacyKey?: string;
-  canonicalKey?: string;
-  reason: "session-reset" | "session-delete";
-}) {
-  const cleanupError = await ensureSessionRuntimeCleanup({
-    cfg: params.cfg,
-    key: params.key,
-    target: params.target,
-    sessionId: params.entry?.sessionId,
-  });
-  if (cleanupError) {
-    return cleanupError;
-  }
-  return await closeAcpRuntimeForSession({
-    cfg: params.cfg,
-    sessionKey: params.legacyKey ?? params.canonicalKey ?? params.target.canonicalKey ?? params.key,
-    entry: params.entry,
-    reason: params.reason,
-  });
-}
-
 export const sessionsHandlers: GatewayRequestHandlers = {
   "sessions.list": ({ params, respond }) => {
     if (!assertValidParams(params, validateSessionsListParams, "sessions.list", respond)) {
@@ -471,17 +445,20 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       },
     );
     await triggerInternalHook(hookEvent);
-    const mutationCleanupError = await cleanupSessionBeforeMutation({
+    const sessionId = entry?.sessionId;
+    const cleanupError = await ensureSessionRuntimeCleanup({ cfg, key, target, sessionId });
+    if (cleanupError) {
+      respond(false, undefined, cleanupError);
+      return;
+    }
+    const acpCleanupError = await closeAcpRuntimeForSession({
       cfg,
-      key,
-      target,
+      sessionKey: legacyKey ?? canonicalKey ?? target.canonicalKey ?? key,
       entry,
-      legacyKey,
-      canonicalKey,
       reason: "session-reset",
     });
-    if (mutationCleanupError) {
-      respond(false, undefined, mutationCleanupError);
+    if (acpCleanupError) {
+      respond(false, undefined, acpCleanupError);
       return;
     }
     let oldSessionId: string | undefined;
@@ -565,20 +542,22 @@ export const sessionsHandlers: GatewayRequestHandlers = {
     const deleteTranscript = typeof p.deleteTranscript === "boolean" ? p.deleteTranscript : true;
 
     const { entry, legacyKey, canonicalKey } = loadSessionEntry(key);
-    const mutationCleanupError = await cleanupSessionBeforeMutation({
-      cfg,
-      key,
-      target,
-      entry,
-      legacyKey,
-      canonicalKey,
-      reason: "session-delete",
-    });
-    if (mutationCleanupError) {
-      respond(false, undefined, mutationCleanupError);
+    const sessionId = entry?.sessionId;
+    const cleanupError = await ensureSessionRuntimeCleanup({ cfg, key, target, sessionId });
+    if (cleanupError) {
+      respond(false, undefined, cleanupError);
       return;
     }
-    const sessionId = entry?.sessionId;
+    const acpCleanupError = await closeAcpRuntimeForSession({
+      cfg,
+      sessionKey: legacyKey ?? canonicalKey ?? target.canonicalKey ?? key,
+      entry,
+      reason: "session-delete",
+    });
+    if (acpCleanupError) {
+      respond(false, undefined, acpCleanupError);
+      return;
+    }
     const deleted = await updateSessionStore(storePath, (store) => {
       const { primaryKey } = migrateAndPruneSessionStoreKey({ cfg, key, store });
       const hadEntry = Boolean(store[primaryKey]);

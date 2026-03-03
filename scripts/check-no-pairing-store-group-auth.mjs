@@ -1,22 +1,19 @@
 #!/usr/bin/env node
 
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { createPairingGuardContext } from "./lib/pairing-guard-context.mjs";
-import {
-  collectFileViolations,
-  getPropertyNameText,
-  runAsScript,
-  toLine,
-} from "./lib/ts-guard-utils.mjs";
 
-const { repoRoot, sourceRoots, resolveFromRepo } = createPairingGuardContext(import.meta.url);
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const sourceRoots = [path.join(repoRoot, "src"), path.join(repoRoot, "extensions")];
 
 const allowedFiles = new Set([
-  resolveFromRepo("src/security/dm-policy-shared.ts"),
-  resolveFromRepo("src/channels/allow-from.ts"),
+  path.join(repoRoot, "src", "security", "dm-policy-shared.ts"),
+  path.join(repoRoot, "src", "channels", "allow-from.ts"),
   // Config migration/audit logic may intentionally reference store + group fields.
-  resolveFromRepo("src/security/fix.ts"),
-  resolveFromRepo("src/security/audit-channel.ts"),
+  path.join(repoRoot, "src", "security", "fix.ts"),
+  path.join(repoRoot, "src", "security", "audit-channel.ts"),
 ]);
 
 const storeIdentifierRe = /^(?:storeAllowFrom|storedAllowFrom|storeAllowList)$/i;
@@ -33,6 +30,43 @@ const allowedResolverCallNames = new Set([
   "resolveMattermostEffectiveAllowFromLists",
   "resolveIrcEffectiveAllowlists",
 ]);
+
+function isTestLikeFile(filePath) {
+  return (
+    filePath.endsWith(".test.ts") ||
+    filePath.endsWith(".test-utils.ts") ||
+    filePath.endsWith(".test-harness.ts") ||
+    filePath.endsWith(".e2e-harness.ts")
+  );
+}
+
+async function collectTypeScriptFiles(dir) {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const out = [];
+  for (const entry of entries) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...(await collectTypeScriptFiles(entryPath)));
+      continue;
+    }
+    if (!entry.isFile() || !entryPath.endsWith(".ts") || isTestLikeFile(entryPath)) {
+      continue;
+    }
+    out.push(entryPath);
+  }
+  return out;
+}
+
+function toLine(sourceFile, node) {
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+}
+
+function getPropertyNameText(name) {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+  return null;
+}
 
 function getDeclarationNameText(name) {
   if (ts.isIdentifier(name)) {
@@ -156,12 +190,24 @@ function findViolations(content, filePath) {
 }
 
 async function main() {
-  const violations = await collectFileViolations({
-    sourceRoots,
-    repoRoot,
-    findViolations,
-    skipFile: (filePath) => allowedFiles.has(filePath),
-  });
+  const files = (
+    await Promise.all(sourceRoots.map(async (root) => await collectTypeScriptFiles(root)))
+  ).flat();
+
+  const violations = [];
+  for (const filePath of files) {
+    if (allowedFiles.has(filePath)) {
+      continue;
+    }
+    const content = await fs.readFile(filePath, "utf8");
+    const fileViolations = findViolations(content, filePath);
+    for (const violation of fileViolations) {
+      violations.push({
+        path: path.relative(repoRoot, filePath),
+        ...violation,
+      });
+    }
+  }
 
   if (violations.length === 0) {
     return;
@@ -177,4 +223,17 @@ async function main() {
   process.exit(1);
 }
 
-runAsScript(import.meta.url, main);
+const isDirectExecution = (() => {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
+  }
+  return path.resolve(entry) === fileURLToPath(import.meta.url);
+})();
+
+if (isDirectExecution) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

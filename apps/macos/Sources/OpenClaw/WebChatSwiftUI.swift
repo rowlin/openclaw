@@ -251,7 +251,10 @@ final class WebChatSwiftUIWindowController {
     }
 
     private func removeDismissMonitor() {
-        OverlayPanelFactory.clearGlobalEventMonitor(&self.dismissMonitor)
+        if let monitor = self.dismissMonitor {
+            NSEvent.removeMonitor(monitor)
+            self.dismissMonitor = nil
+        }
     }
 
     private static func makeWindow(
@@ -368,6 +371,13 @@ final class WebChatSwiftUIWindowController {
     }
 
     private static func color(fromHex raw: String?) -> Color? {
-        ColorHexSupport.color(fromHex: raw)
+        let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let hex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        guard hex.count == 6, let value = Int(hex, radix: 16) else { return nil }
+        let r = Double((value >> 16) & 0xFF) / 255.0
+        let g = Double((value >> 8) & 0xFF) / 255.0
+        let b = Double(value & 0xFF) / 255.0
+        return Color(red: r, green: g, blue: b)
     }
 }

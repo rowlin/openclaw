@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  buildSystemRunApprovalBinding,
+  buildSystemRunApprovalBindingV1,
   buildSystemRunApprovalEnvBinding,
 } from "../infra/system-run-approval-binding.js";
 import { ExecApprovalManager, type ExecApprovalRecord } from "./exec-approval-manager.js";
@@ -30,7 +30,7 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
         nodeId: "node-1",
         command,
         commandArgv,
-        systemRunBinding: buildSystemRunApprovalBinding({
+        systemRunBindingV1: buildSystemRunApprovalBindingV1({
           argv: effectiveBindingArgv,
           cwd: null,
           agentId: null,
@@ -78,21 +78,6 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
     expect(params.approvalDecision).toBe("allow-once");
   }
 
-  function expectRejectedForwardingResult(
-    result: ReturnType<typeof sanitizeSystemRunParamsForForwarding>,
-    code: string,
-    messageSubstring?: string,
-  ) {
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error("unreachable");
-    }
-    if (messageSubstring) {
-      expect(result.message).toContain(messageSubstring);
-    }
-    expect(result.details?.code).toBe(code);
-  }
-
   test("rejects cmd.exe /c trailing-arg mismatch against rawCommand", () => {
     const result = sanitizeSystemRunParamsForForwarding({
       rawParams: {
@@ -107,11 +92,12 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
       execApprovalManager: manager(makeRecord("echo")),
       nowMs: now,
     });
-    expectRejectedForwardingResult(
-      result,
-      "RAW_COMMAND_MISMATCH",
-      "rawCommand does not match command",
-    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
+    expect(result.message).toContain("rawCommand does not match command");
+    expect(result.details?.code).toBe("RAW_COMMAND_MISMATCH");
   });
 
   test("accepts matching cmd.exe /c command text for approval binding", () => {
@@ -153,11 +139,12 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
       execApprovalManager: manager(makeRecord("echo SAFE")),
       nowMs: now,
     });
-    expectRejectedForwardingResult(
-      result,
-      "APPROVAL_REQUEST_MISMATCH",
-      "approval id does not match request",
-    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
+    expect(result.message).toContain("approval id does not match request");
+    expect(result.details?.code).toBe("APPROVAL_REQUEST_MISMATCH");
   });
 
   test("accepts env-assignment shell wrapper only when approval command matches full argv text", () => {
@@ -197,11 +184,12 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
       execApprovalManager: manager(makeRecord("runner")),
       nowMs: now,
     });
-    expectRejectedForwardingResult(
-      result,
-      "APPROVAL_REQUEST_MISMATCH",
-      "approval id does not match request",
-    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
+    expect(result.message).toContain("approval id does not match request");
+    expect(result.details?.code).toBe("APPROVAL_REQUEST_MISMATCH");
   });
 
   test("enforces commandArgv identity when approval includes argv binding", () => {
@@ -217,11 +205,12 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
       execApprovalManager: manager(makeRecord("echo SAFE", ["echo SAFE"])),
       nowMs: now,
     });
-    expectRejectedForwardingResult(
-      result,
-      "APPROVAL_REQUEST_MISMATCH",
-      "approval id does not match request",
-    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
+    expect(result.message).toContain("approval id does not match request");
+    expect(result.details?.code).toBe("APPROVAL_REQUEST_MISMATCH");
   });
 
   test("accepts matching commandArgv binding for trailing-space argv", () => {
@@ -240,16 +229,17 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
     expectAllowOnceForwardingResult(result);
   });
 
-  test("uses systemRunPlan for forwarded command context and ignores caller tampering", () => {
+  test("uses systemRunPlanV2 for forwarded command context and ignores caller tampering", () => {
     const record = makeRecord("echo SAFE", ["echo", "SAFE"]);
-    record.request.systemRunPlan = {
+    record.request.systemRunPlanV2 = {
+      version: 2,
       argv: ["/usr/bin/echo", "SAFE"],
       cwd: "/real/cwd",
       rawCommand: "/usr/bin/echo SAFE",
       agentId: "main",
       sessionKey: "agent:main:main",
     };
-    record.request.systemRunBinding = buildSystemRunApprovalBinding({
+    record.request.systemRunBindingV1 = buildSystemRunApprovalBindingV1({
       argv: ["/usr/bin/echo", "SAFE"],
       cwd: "/real/cwd",
       agentId: "main",
@@ -298,12 +288,17 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
       execApprovalManager: manager(makeRecord("git diff", ["git", "diff"])),
       nowMs: now,
     });
-    expectRejectedForwardingResult(result, "APPROVAL_ENV_BINDING_MISSING");
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
+    expect(result.details?.code).toBe("APPROVAL_ENV_BINDING_MISSING");
   });
 
   test("rejects env hash mismatch", () => {
     const record = makeRecord("git diff", ["git", "diff"]);
-    record.request.systemRunBinding = {
+    record.request.systemRunBindingV1 = {
+      version: 1,
       argv: ["git", "diff"],
       cwd: null,
       agentId: null,
@@ -324,13 +319,18 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
       execApprovalManager: manager(record),
       nowMs: now,
     });
-    expectRejectedForwardingResult(result, "APPROVAL_ENV_MISMATCH");
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
+    expect(result.details?.code).toBe("APPROVAL_ENV_MISMATCH");
   });
 
   test("accepts matching env hash with reordered keys", () => {
     const record = makeRecord("git diff", ["git", "diff"]);
     const binding = buildSystemRunApprovalEnvBinding({ SAFE_A: "1", SAFE_B: "2" });
-    record.request.systemRunBinding = {
+    record.request.systemRunBindingV1 = {
+      version: 1,
       argv: ["git", "diff"],
       cwd: null,
       agentId: null,
@@ -363,7 +363,7 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
         nodeId: "node-1",
         command: "echo SAFE",
         commandArgv: ["echo", "SAFE"],
-        systemRunBinding: buildSystemRunApprovalBinding({
+        systemRunBindingV1: buildSystemRunApprovalBindingV1({
           argv: ["echo", "SAFE"],
           cwd: null,
           agentId: null,
@@ -408,7 +408,11 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
       execApprovalManager: approvalManager,
       nowMs: now,
     });
-    expectRejectedForwardingResult(second, "APPROVAL_REQUIRED");
+    expect(second.ok).toBe(false);
+    if (second.ok) {
+      throw new Error("unreachable");
+    }
+    expect(second.details?.code).toBe("APPROVAL_REQUIRED");
   });
 
   test("rejects approval ids that do not bind a nodeId", () => {
@@ -426,7 +430,12 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
       execApprovalManager: manager(record),
       nowMs: now,
     });
-    expectRejectedForwardingResult(result, "APPROVAL_NODE_BINDING_MISSING", "missing node binding");
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
+    expect(result.message).toContain("missing node binding");
+    expect(result.details?.code).toBe("APPROVAL_NODE_BINDING_MISSING");
   });
 
   test("rejects approval ids replayed against a different nodeId", () => {
@@ -442,6 +451,11 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
       execApprovalManager: manager(makeRecord("echo SAFE")),
       nowMs: now,
     });
-    expectRejectedForwardingResult(result, "APPROVAL_NODE_MISMATCH", "not valid for this node");
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("unreachable");
+    }
+    expect(result.message).toContain("not valid for this node");
+    expect(result.details?.code).toBe("APPROVAL_NODE_MISMATCH");
   });
 });

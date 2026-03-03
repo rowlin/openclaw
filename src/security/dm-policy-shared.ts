@@ -4,28 +4,6 @@ import type { ChannelId } from "../channels/plugins/types.js";
 import { readChannelAllowFromStore } from "../pairing/pairing-store.js";
 import { normalizeStringEntries } from "../shared/string-normalization.js";
 
-export function resolvePinnedMainDmOwnerFromAllowlist(params: {
-  dmScope?: string | null;
-  allowFrom?: Array<string | number> | null;
-  normalizeEntry: (entry: string) => string | undefined;
-}): string | null {
-  if ((params.dmScope ?? "main") !== "main") {
-    return null;
-  }
-  const rawAllowFrom = Array.isArray(params.allowFrom) ? params.allowFrom : [];
-  if (rawAllowFrom.some((entry) => String(entry).trim() === "*")) {
-    return null;
-  }
-  const normalizedOwners = Array.from(
-    new Set(
-      rawAllowFrom
-        .map((entry) => params.normalizeEntry(String(entry)))
-        .filter((entry): entry is string => Boolean(entry)),
-    ),
-  );
-  return normalizedOwners.length === 1 ? normalizedOwners[0] : null;
-}
-
 export function resolveEffectiveAllowFromLists(params: {
   allowFrom?: Array<string | number> | null;
   groupAllowFrom?: Array<string | number> | null;
@@ -71,17 +49,6 @@ export const DM_GROUP_ACCESS_REASON = {
 } as const;
 export type DmGroupAccessReasonCode =
   (typeof DM_GROUP_ACCESS_REASON)[keyof typeof DM_GROUP_ACCESS_REASON];
-
-type DmGroupAccessInputParams = {
-  isGroup: boolean;
-  dmPolicy?: string | null;
-  groupPolicy?: string | null;
-  allowFrom?: Array<string | number> | null;
-  groupAllowFrom?: Array<string | number> | null;
-  storeAllowFrom?: Array<string | number> | null;
-  groupAllowFromFallbackToAllowFrom?: boolean | null;
-  isSenderAllowed: (allowFrom: string[]) => boolean;
-};
 
 export async function readStoreAllowFromForDmPolicy(params: {
   provider: ChannelId;
@@ -183,7 +150,16 @@ export function resolveDmGroupAccessDecision(params: {
   };
 }
 
-export function resolveDmGroupAccessWithLists(params: DmGroupAccessInputParams): {
+export function resolveDmGroupAccessWithLists(params: {
+  isGroup: boolean;
+  dmPolicy?: string | null;
+  groupPolicy?: string | null;
+  allowFrom?: Array<string | number> | null;
+  groupAllowFrom?: Array<string | number> | null;
+  storeAllowFrom?: Array<string | number> | null;
+  groupAllowFromFallbackToAllowFrom?: boolean | null;
+  isSenderAllowed: (allowFrom: string[]) => boolean;
+}): {
   decision: DmGroupAccessDecision;
   reasonCode: DmGroupAccessReasonCode;
   reason: string;
@@ -212,15 +188,21 @@ export function resolveDmGroupAccessWithLists(params: DmGroupAccessInputParams):
   };
 }
 
-export function resolveDmGroupAccessWithCommandGate(
-  params: DmGroupAccessInputParams & {
-    command?: {
-      useAccessGroups: boolean;
-      allowTextCommands: boolean;
-      hasControlCommand: boolean;
-    };
-  },
-): {
+export function resolveDmGroupAccessWithCommandGate(params: {
+  isGroup: boolean;
+  dmPolicy?: string | null;
+  groupPolicy?: string | null;
+  allowFrom?: Array<string | number> | null;
+  groupAllowFrom?: Array<string | number> | null;
+  storeAllowFrom?: Array<string | number> | null;
+  groupAllowFromFallbackToAllowFrom?: boolean | null;
+  isSenderAllowed: (allowFrom: string[]) => boolean;
+  command?: {
+    useAccessGroups: boolean;
+    allowTextCommands: boolean;
+    hasControlCommand: boolean;
+  };
+}): {
   decision: DmGroupAccessDecision;
   reason: string;
   effectiveAllowFrom: string[];

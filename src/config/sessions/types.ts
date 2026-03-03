@@ -225,31 +225,12 @@ export function setSessionRuntimeModel(
   return true;
 }
 
-export type SessionEntryMergePolicy = "touch-activity" | "preserve-activity";
-
-type MergeSessionEntryOptions = {
-  policy?: SessionEntryMergePolicy;
-  now?: number;
-};
-
-function resolveMergedUpdatedAt(
+export function mergeSessionEntry(
   existing: SessionEntry | undefined,
   patch: Partial<SessionEntry>,
-  options?: MergeSessionEntryOptions,
-): number {
-  if (options?.policy === "preserve-activity" && existing) {
-    return existing.updatedAt ?? patch.updatedAt ?? options.now ?? Date.now();
-  }
-  return Math.max(existing?.updatedAt ?? 0, patch.updatedAt ?? 0, options?.now ?? Date.now());
-}
-
-export function mergeSessionEntryWithPolicy(
-  existing: SessionEntry | undefined,
-  patch: Partial<SessionEntry>,
-  options?: MergeSessionEntryOptions,
 ): SessionEntry {
   const sessionId = patch.sessionId ?? existing?.sessionId ?? crypto.randomUUID();
-  const updatedAt = resolveMergedUpdatedAt(existing, patch, options);
+  const updatedAt = Math.max(existing?.updatedAt ?? 0, patch.updatedAt ?? 0, Date.now());
   if (!existing) {
     return normalizeSessionRuntimeModelFields({ ...patch, sessionId, updatedAt });
   }
@@ -265,22 +246,6 @@ export function mergeSessionEntryWithPolicy(
     }
   }
   return normalizeSessionRuntimeModelFields(next);
-}
-
-export function mergeSessionEntry(
-  existing: SessionEntry | undefined,
-  patch: Partial<SessionEntry>,
-): SessionEntry {
-  return mergeSessionEntryWithPolicy(existing, patch);
-}
-
-export function mergeSessionEntryPreserveActivity(
-  existing: SessionEntry | undefined,
-  patch: Partial<SessionEntry>,
-): SessionEntry {
-  return mergeSessionEntryWithPolicy(existing, patch, {
-    policy: "preserve-activity",
-  });
 }
 
 export function resolveFreshSessionTotalTokens(

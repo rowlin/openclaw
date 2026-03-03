@@ -5,7 +5,6 @@ import type { RuntimeEnv } from "../runtime.js";
 const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
   resolveSessionStoreTargets: vi.fn(),
-  resolveSessionStoreTargetsOrExit: vi.fn(),
   resolveMaintenanceConfig: vi.fn(),
   loadSessionStore: vi.fn(),
   resolveSessionFilePath: vi.fn(),
@@ -22,7 +21,6 @@ vi.mock("../config/config.js", () => ({
 
 vi.mock("./session-store-targets.js", () => ({
   resolveSessionStoreTargets: mocks.resolveSessionStoreTargets,
-  resolveSessionStoreTargetsOrExit: mocks.resolveSessionStoreTargetsOrExit,
 }));
 
 vi.mock("../config/sessions.js", () => ({
@@ -57,17 +55,6 @@ describe("sessionsCleanupCommand", () => {
     mocks.resolveSessionStoreTargets.mockReturnValue([
       { agentId: "main", storePath: "/resolved/sessions.json" },
     ]);
-    mocks.resolveSessionStoreTargetsOrExit.mockImplementation(
-      (params: { cfg: unknown; opts: unknown; runtime: RuntimeEnv }) => {
-        try {
-          return mocks.resolveSessionStoreTargets(params.cfg, params.opts);
-        } catch (error) {
-          params.runtime.error(error instanceof Error ? error.message : String(error));
-          params.runtime.exit(1);
-          return null;
-        }
-      },
-    );
     mocks.resolveMaintenanceConfig.mockReturnValue({
       mode: "warn",
       pruneAfterMs: 7 * 24 * 60 * 60 * 1000,

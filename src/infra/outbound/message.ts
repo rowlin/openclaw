@@ -9,7 +9,10 @@ import {
   type GatewayClientMode,
   type GatewayClientName,
 } from "../../utils/message-channel.js";
-import { resolveOutboundChannelPlugin } from "./channel-resolution.js";
+import {
+  normalizeDeliverableOutboundChannel,
+  resolveOutboundChannelPlugin,
+} from "./channel-resolution.js";
 import { resolveMessageChannelSelection } from "./channel-selection.js";
 import {
   deliverOutboundPayloads,
@@ -108,12 +111,14 @@ async function resolveRequiredChannel(params: {
   cfg: OpenClawConfig;
   channel?: string;
 }): Promise<string> {
-  return (
-    await resolveMessageChannelSelection({
-      cfg: params.cfg,
-      channel: params.channel,
-    })
-  ).channel;
+  if (params.channel?.trim()) {
+    const normalized = normalizeDeliverableOutboundChannel(params.channel);
+    if (!normalized) {
+      throw new Error(`Unknown channel: ${params.channel}`);
+    }
+    return normalized;
+  }
+  return (await resolveMessageChannelSelection({ cfg: params.cfg })).channel;
 }
 
 function resolveRequiredPlugin(channel: string, cfg: OpenClawConfig) {

@@ -339,23 +339,6 @@ function readBoundaryFileUtf8(params: {
   rootPath: string;
   boundaryLabel: string;
 }): string | null {
-  return withOpenedBoundaryFileSync(params, (opened) => {
-    try {
-      return fs.readFileSync(opened.fd, "utf-8");
-    } catch {
-      return null;
-    }
-  });
-}
-
-function withOpenedBoundaryFileSync<T>(
-  params: {
-    absolutePath: string;
-    rootPath: string;
-    boundaryLabel: string;
-  },
-  read: (opened: { fd: number; path: string }) => T,
-): T | null {
   const opened = openBoundaryFileSync({
     absolutePath: params.absolutePath,
     rootPath: params.rootPath,
@@ -365,7 +348,9 @@ function withOpenedBoundaryFileSync<T>(
     return null;
   }
   try {
-    return read({ fd: opened.fd, path: opened.path });
+    return fs.readFileSync(opened.fd, "utf-8");
+  } catch {
+    return null;
   } finally {
     fs.closeSync(opened.fd);
   }
@@ -376,5 +361,15 @@ function resolveBoundaryFilePath(params: {
   rootPath: string;
   boundaryLabel: string;
 }): string | null {
-  return withOpenedBoundaryFileSync(params, (opened) => opened.path);
+  const opened = openBoundaryFileSync({
+    absolutePath: params.absolutePath,
+    rootPath: params.rootPath,
+    boundaryLabel: params.boundaryLabel,
+  });
+  if (!opened.ok) {
+    return null;
+  }
+  const safePath = opened.path;
+  fs.closeSync(opened.fd);
+  return safePath;
 }

@@ -1,3 +1,4 @@
+import { fetchWithBearerAuthScopeFallback } from "openclaw/plugin-sdk";
 import { getMSTeamsRuntime } from "../runtime.js";
 import { downloadAndStoreMSTeamsRemoteMedia } from "./remote-media.js";
 import {
@@ -6,12 +7,11 @@ import {
   isDownloadableAttachment,
   isRecord,
   isUrlAllowed,
-  type MSTeamsAttachmentFetchPolicy,
   normalizeContentType,
   resolveMediaSsrfPolicy,
-  resolveAttachmentFetchPolicy,
   resolveRequestUrl,
-  safeFetchWithPolicy,
+  resolveAuthAllowedHosts,
+  resolveAllowedHosts,
 } from "./shared.js";
 import type {
   MSTeamsAccessTokenProvider,
@@ -86,69 +86,22 @@ function scopeCandidatesForUrl(url: string): string[] {
   }
 }
 
-function isRedirectStatus(status: number): boolean {
-  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
-}
-
 async function fetchWithAuthFallback(params: {
   url: string;
   tokenProvider?: MSTeamsAccessTokenProvider;
   fetchFn?: typeof fetch;
   requestInit?: RequestInit;
-  policy: MSTeamsAttachmentFetchPolicy;
+  authAllowHosts: string[];
 }): Promise<Response> {
-  const firstAttempt = await safeFetchWithPolicy({
+  return await fetchWithBearerAuthScopeFallback({
     url: params.url,
-    policy: params.policy,
+    scopes: scopeCandidatesForUrl(params.url),
+    tokenProvider: params.tokenProvider,
     fetchFn: params.fetchFn,
     requestInit: params.requestInit,
+    requireHttps: true,
+    shouldAttachAuth: (url) => isUrlAllowed(url, params.authAllowHosts),
   });
-  if (firstAttempt.ok) {
-    return firstAttempt;
-  }
-  if (!params.tokenProvider) {
-    return firstAttempt;
-  }
-  if (firstAttempt.status !== 401 && firstAttempt.status !== 403) {
-    return firstAttempt;
-  }
-  if (!isUrlAllowed(params.url, params.policy.authAllowHosts)) {
-    return firstAttempt;
-  }
-
-  const scopes = scopeCandidatesForUrl(params.url);
-  const fetchFn = params.fetchFn ?? fetch;
-  for (const scope of scopes) {
-    try {
-      const token = await params.tokenProvider.getAccessToken(scope);
-      const authHeaders = new Headers(params.requestInit?.headers);
-      authHeaders.set("Authorization", `Bearer ${token}`);
-      const authAttempt = await safeFetchWithPolicy({
-        url: params.url,
-        policy: params.policy,
-        fetchFn,
-        requestInit: {
-          ...params.requestInit,
-          headers: authHeaders,
-        },
-      });
-      if (authAttempt.ok) {
-        return authAttempt;
-      }
-      if (isRedirectStatus(authAttempt.status)) {
-        // Redirects in guarded fetch mode must propagate to the outer guard.
-        return authAttempt;
-      }
-      if (authAttempt.status !== 401 && authAttempt.status !== 403) {
-        // Preserve scope fallback semantics for non-auth failures.
-        continue;
-      }
-    } catch {
-      // Try the next scope.
-    }
-  }
-
-  return firstAttempt;
 }
 
 /**
@@ -169,11 +122,8 @@ export async function downloadMSTeamsAttachments(params: {
   if (list.length === 0) {
     return [];
   }
-  const policy = resolveAttachmentFetchPolicy({
-    allowHosts: params.allowHosts,
-    authAllowHosts: params.authAllowHosts,
-  });
-  const allowHosts = policy.allowHosts;
+  const allowHosts = resolveAllowedHosts(params.allowHosts);
+  const authAllowHosts = resolveAuthAllowedHosts(params.authAllowHosts);
   const ssrfPolicy = resolveMediaSsrfPolicy(allowHosts);
 
   // Download ANY downloadable attachment (not just images)
@@ -250,7 +200,7 @@ export async function downloadMSTeamsAttachments(params: {
             tokenProvider: params.tokenProvider,
             fetchFn: params.fetchFn,
             requestInit: init,
-            policy,
+            authAllowHosts,
           }),
       });
       out.push(media);

@@ -1,59 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { createTypingCallbacks } from "./typing.js";
 
-type TypingCallbackOverrides = Partial<Parameters<typeof createTypingCallbacks>[0]>;
-type TypingHarnessStart = ReturnType<typeof vi.fn<() => Promise<void>>>;
-type TypingHarnessError = ReturnType<typeof vi.fn<(err: unknown) => void>>;
-
 const flushMicrotasks = async () => {
   await Promise.resolve();
   await Promise.resolve();
 };
 
-async function withFakeTimers(run: () => Promise<void>) {
-  vi.useFakeTimers();
-  try {
-    await run();
-  } finally {
-    vi.useRealTimers();
-  }
-}
-
-function createTypingHarness(overrides: TypingCallbackOverrides = {}) {
-  const start: TypingHarnessStart = vi.fn<() => Promise<void>>(async () => {});
-  const stop: TypingHarnessStart = vi.fn<() => Promise<void>>(async () => {});
-  const onStartError: TypingHarnessError = vi.fn<(err: unknown) => void>();
-  const onStopError: TypingHarnessError = vi.fn<(err: unknown) => void>();
-
-  if (overrides.start) {
-    start.mockImplementation(overrides.start);
-  }
-  if (overrides.stop) {
-    stop.mockImplementation(overrides.stop);
-  }
-  if (overrides.onStartError) {
-    onStartError.mockImplementation(overrides.onStartError);
-  }
-  if (overrides.onStopError) {
-    onStopError.mockImplementation(overrides.onStopError);
-  }
-
-  const callbacks = createTypingCallbacks({
-    start,
-    stop,
-    onStartError,
-    onStopError,
-    ...(overrides.maxConsecutiveFailures !== undefined
-      ? { maxConsecutiveFailures: overrides.maxConsecutiveFailures }
-      : {}),
-    ...(overrides.maxDurationMs !== undefined ? { maxDurationMs: overrides.maxDurationMs } : {}),
-  });
-  return { start, stop, onStartError, onStopError, callbacks };
-}
-
 describe("createTypingCallbacks", () => {
   it("invokes start on reply start", async () => {
-    const { start, onStartError, callbacks } = createTypingHarness();
+    const start = vi.fn().mockResolvedValue(undefined);
+    const onStartError = vi.fn();
+    const callbacks = createTypingCallbacks({ start, onStartError });
 
     await callbacks.onReplyStart();
 
@@ -62,9 +19,9 @@ describe("createTypingCallbacks", () => {
   });
 
   it("reports start errors", async () => {
-    const { onStartError, callbacks } = createTypingHarness({
-      start: vi.fn().mockRejectedValue(new Error("fail")),
-    });
+    const start = vi.fn().mockRejectedValue(new Error("fail"));
+    const onStartError = vi.fn();
+    const callbacks = createTypingCallbacks({ start, onStartError });
 
     await callbacks.onReplyStart();
 
@@ -72,9 +29,11 @@ describe("createTypingCallbacks", () => {
   });
 
   it("invokes stop on idle and reports stop errors", async () => {
-    const { stop, onStopError, callbacks } = createTypingHarness({
-      stop: vi.fn().mockRejectedValue(new Error("stop")),
-    });
+    const start = vi.fn().mockResolvedValue(undefined);
+    const stop = vi.fn().mockRejectedValue(new Error("stop"));
+    const onStartError = vi.fn();
+    const onStopError = vi.fn();
+    const callbacks = createTypingCallbacks({ start, stop, onStartError, onStopError });
 
     callbacks.onIdle?.();
     await flushMicrotasks();
@@ -84,8 +43,13 @@ describe("createTypingCallbacks", () => {
   });
 
   it("sends typing keepalive pings until idle cleanup", async () => {
-    await withFakeTimers(async () => {
-      const { start, stop, callbacks } = createTypingHarness();
+    vi.useFakeTimers();
+    try {
+      const start = vi.fn().mockResolvedValue(undefined);
+      const stop = vi.fn().mockResolvedValue(undefined);
+      const onStartError = vi.fn();
+      const callbacks = createTypingCallbacks({ start, stop, onStartError });
+
       await callbacks.onReplyStart();
       expect(start).toHaveBeenCalledTimes(1);
 
@@ -104,14 +68,18 @@ describe("createTypingCallbacks", () => {
 
       await vi.advanceTimersByTimeAsync(9_000);
       expect(start).toHaveBeenCalledTimes(3);
-    });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stops keepalive after consecutive start failures", async () => {
-    await withFakeTimers(async () => {
-      const { start, onStartError, callbacks } = createTypingHarness({
-        start: vi.fn().mockRejectedValue(new Error("gone")),
-      });
+    vi.useFakeTimers();
+    try {
+      const start = vi.fn().mockRejectedValue(new Error("gone"));
+      const onStartError = vi.fn();
+      const callbacks = createTypingCallbacks({ start, onStartError });
+
       await callbacks.onReplyStart();
       expect(start).toHaveBeenCalledTimes(1);
       expect(onStartError).toHaveBeenCalledTimes(1);
@@ -122,13 +90,19 @@ describe("createTypingCallbacks", () => {
 
       await vi.advanceTimersByTimeAsync(9_000);
       expect(start).toHaveBeenCalledTimes(2);
-    });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not restart keepalive when breaker trips on initial start", async () => {
-    await withFakeTimers(async () => {
-      const { start, onStartError, callbacks } = createTypingHarness({
-        start: vi.fn().mockRejectedValue(new Error("gone")),
+    vi.useFakeTimers();
+    try {
+      const start = vi.fn().mockRejectedValue(new Error("gone"));
+      const onStartError = vi.fn();
+      const callbacks = createTypingCallbacks({
+        start,
+        onStartError,
         maxConsecutiveFailures: 1,
       });
 
@@ -138,21 +112,28 @@ describe("createTypingCallbacks", () => {
       await vi.advanceTimersByTimeAsync(9_000);
       expect(start).toHaveBeenCalledTimes(1);
       expect(onStartError).toHaveBeenCalledTimes(1);
-    });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("resets failure counter after a successful keepalive tick", async () => {
-    await withFakeTimers(async () => {
+    vi.useFakeTimers();
+    try {
       let callCount = 0;
-      const { start, onStartError, callbacks } = createTypingHarness({
-        start: vi.fn().mockImplementation(async () => {
-          callCount += 1;
-          if (callCount % 2 === 1) {
-            throw new Error("flaky");
-          }
-        }),
+      const start = vi.fn().mockImplementation(async () => {
+        callCount += 1;
+        if (callCount % 2 === 1) {
+          throw new Error("flaky");
+        }
+      });
+      const onStartError = vi.fn();
+      const callbacks = createTypingCallbacks({
+        start,
+        onStartError,
         maxConsecutiveFailures: 2,
       });
+
       await callbacks.onReplyStart(); // fail
       await vi.advanceTimersByTimeAsync(3_000); // success
       await vi.advanceTimersByTimeAsync(3_000); // fail
@@ -161,11 +142,16 @@ describe("createTypingCallbacks", () => {
 
       expect(start).toHaveBeenCalledTimes(5);
       expect(onStartError).toHaveBeenCalledTimes(3);
-    });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("deduplicates stop across idle and cleanup", async () => {
-    const { stop, callbacks } = createTypingHarness();
+    const start = vi.fn().mockResolvedValue(undefined);
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const onStartError = vi.fn();
+    const callbacks = createTypingCallbacks({ start, stop, onStartError });
 
     callbacks.onIdle?.();
     callbacks.onCleanup?.();
@@ -175,8 +161,12 @@ describe("createTypingCallbacks", () => {
   });
 
   it("does not restart keepalive after idle cleanup", async () => {
-    await withFakeTimers(async () => {
-      const { start, stop, callbacks } = createTypingHarness();
+    vi.useFakeTimers();
+    try {
+      const start = vi.fn().mockResolvedValue(undefined);
+      const stop = vi.fn().mockResolvedValue(undefined);
+      const onStartError = vi.fn();
+      const callbacks = createTypingCallbacks({ start, stop, onStartError });
 
       await callbacks.onReplyStart();
       expect(start).toHaveBeenCalledTimes(1);
@@ -189,15 +179,26 @@ describe("createTypingCallbacks", () => {
 
       expect(start).toHaveBeenCalledTimes(1);
       expect(stop).toHaveBeenCalledTimes(1);
-    });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // ========== TTL Safety Tests ==========
   describe("TTL safety", () => {
     it("auto-stops typing after maxDurationMs", async () => {
-      await withFakeTimers(async () => {
+      vi.useFakeTimers();
+      try {
         const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
-        const { start, stop, callbacks } = createTypingHarness({ maxDurationMs: 10_000 });
+        const start = vi.fn().mockResolvedValue(undefined);
+        const stop = vi.fn().mockResolvedValue(undefined);
+        const onStartError = vi.fn();
+        const callbacks = createTypingCallbacks({
+          start,
+          stop,
+          onStartError,
+          maxDurationMs: 10_000,
+        });
 
         await callbacks.onReplyStart();
         expect(start).toHaveBeenCalledTimes(1);
@@ -211,13 +212,24 @@ describe("createTypingCallbacks", () => {
         expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("TTL exceeded"));
 
         consoleWarn.mockRestore();
-      });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("does not auto-stop if idle is called before TTL", async () => {
-      await withFakeTimers(async () => {
+      vi.useFakeTimers();
+      try {
         const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
-        const { stop, callbacks } = createTypingHarness({ maxDurationMs: 10_000 });
+        const start = vi.fn().mockResolvedValue(undefined);
+        const stop = vi.fn().mockResolvedValue(undefined);
+        const onStartError = vi.fn();
+        const callbacks = createTypingCallbacks({
+          start,
+          stop,
+          onStartError,
+          maxDurationMs: 10_000,
+        });
 
         await callbacks.onReplyStart();
 
@@ -237,12 +249,18 @@ describe("createTypingCallbacks", () => {
         expect(stop).toHaveBeenCalledTimes(1);
 
         consoleWarn.mockRestore();
-      });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("uses default 60s TTL when not specified", async () => {
-      await withFakeTimers(async () => {
-        const { stop, callbacks } = createTypingHarness();
+      vi.useFakeTimers();
+      try {
+        const start = vi.fn().mockResolvedValue(undefined);
+        const stop = vi.fn().mockResolvedValue(undefined);
+        const onStartError = vi.fn();
+        const callbacks = createTypingCallbacks({ start, stop, onStartError });
 
         await callbacks.onReplyStart();
 
@@ -253,24 +271,46 @@ describe("createTypingCallbacks", () => {
         // Should stop at 60s
         await vi.advanceTimersByTimeAsync(1_000);
         expect(stop).toHaveBeenCalledTimes(1);
-      });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("disables TTL when maxDurationMs is 0", async () => {
-      await withFakeTimers(async () => {
-        const { stop, callbacks } = createTypingHarness({ maxDurationMs: 0 });
+      vi.useFakeTimers();
+      try {
+        const start = vi.fn().mockResolvedValue(undefined);
+        const stop = vi.fn().mockResolvedValue(undefined);
+        const onStartError = vi.fn();
+        const callbacks = createTypingCallbacks({
+          start,
+          stop,
+          onStartError,
+          maxDurationMs: 0,
+        });
 
         await callbacks.onReplyStart();
 
         // Should not auto-stop even after long time
         await vi.advanceTimersByTimeAsync(300_000);
         expect(stop).not.toHaveBeenCalled();
-      });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("resets TTL timer on restart after idle", async () => {
-      await withFakeTimers(async () => {
-        const { stop, callbacks } = createTypingHarness({ maxDurationMs: 10_000 });
+      vi.useFakeTimers();
+      try {
+        const start = vi.fn().mockResolvedValue(undefined);
+        const stop = vi.fn().mockResolvedValue(undefined);
+        const onStartError = vi.fn();
+        const callbacks = createTypingCallbacks({
+          start,
+          stop,
+          onStartError,
+          maxDurationMs: 10_000,
+        });
 
         // First start
         await callbacks.onReplyStart();
@@ -290,7 +330,9 @@ describe("createTypingCallbacks", () => {
 
         // Should not trigger stop again since it's closed
         expect(stop).not.toHaveBeenCalled();
-      });
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

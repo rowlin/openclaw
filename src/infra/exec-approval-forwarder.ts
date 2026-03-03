@@ -7,7 +7,7 @@ import type {
 } from "../config/types.approvals.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { normalizeAccountId, parseAgentSessionKey } from "../routing/session-key.js";
-import { compileSafeRegex, testRegexWithBoundedInput } from "../security/safe-regex.js";
+import { compileSafeRegex } from "../security/safe-regex.js";
 import {
   isDeliverableMessageChannel,
   normalizeMessageChannel,
@@ -22,6 +22,7 @@ import { deliverOutboundPayloads } from "./outbound/deliver.js";
 import { resolveSessionDeliveryTarget } from "./outbound/targets.js";
 
 const log = createSubsystemLogger("gateway/exec-approvals");
+
 export type { ExecApprovalRequest, ExecApprovalResolved };
 
 type ForwardTarget = ExecApprovalForwardTarget & { source: "session" | "target" };
@@ -60,7 +61,7 @@ function matchSessionFilter(sessionKey: string, patterns: string[]): boolean {
       return true;
     }
     const regex = compileSafeRegex(pattern);
-    return regex ? testRegexWithBoundedInput(regex, sessionKey) : false;
+    return regex ? regex.test(sessionKey) : false;
   });
 }
 

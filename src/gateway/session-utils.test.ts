@@ -40,39 +40,6 @@ function createSingleAgentAvatarConfig(workspace: string): OpenClawConfig {
   } as OpenClawConfig;
 }
 
-function createModelDefaultsConfig(params: {
-  primary: string;
-  models?: Record<string, Record<string, never>>;
-}): OpenClawConfig {
-  return {
-    agents: {
-      defaults: {
-        model: { primary: params.primary },
-        models: params.models,
-      },
-    },
-  } as OpenClawConfig;
-}
-
-function createLegacyRuntimeListConfig(
-  models?: Record<string, Record<string, never>>,
-): OpenClawConfig {
-  return createModelDefaultsConfig({
-    primary: "google-gemini-cli/gemini-3-pro-preview",
-    ...(models ? { models } : {}),
-  });
-}
-
-function createLegacyRuntimeStore(model: string): Record<string, SessionEntry> {
-  return {
-    "agent:main:main": {
-      sessionId: "sess-main",
-      updatedAt: Date.now(),
-      model,
-    } as SessionEntry,
-  };
-}
-
 describe("gateway session utils", () => {
   test("capArrayByJsonBytes trims from the front", () => {
     const res = capArrayByJsonBytes(["a", "b", "c"], 10);
@@ -314,9 +281,13 @@ describe("gateway session utils", () => {
 
 describe("resolveSessionModelRef", () => {
   test("prefers runtime model/provider from session entry", () => {
-    const cfg = createModelDefaultsConfig({
-      primary: "anthropic/claude-opus-4-6",
-    });
+    const cfg = {
+      agents: {
+        defaults: {
+          model: { primary: "anthropic/claude-opus-4-6" },
+        },
+      },
+    } as OpenClawConfig;
 
     const resolved = resolveSessionModelRef(cfg, {
       sessionId: "s1",
@@ -331,9 +302,13 @@ describe("resolveSessionModelRef", () => {
   });
 
   test("preserves openrouter provider when model contains vendor prefix", () => {
-    const cfg = createModelDefaultsConfig({
-      primary: "openrouter/minimax/minimax-m2.5",
-    });
+    const cfg = {
+      agents: {
+        defaults: {
+          model: { primary: "openrouter/minimax/minimax-m2.5" },
+        },
+      },
+    } as OpenClawConfig;
 
     const resolved = resolveSessionModelRef(cfg, {
       sessionId: "s-or",
@@ -349,9 +324,13 @@ describe("resolveSessionModelRef", () => {
   });
 
   test("falls back to override when runtime model is not recorded yet", () => {
-    const cfg = createModelDefaultsConfig({
-      primary: "anthropic/claude-opus-4-6",
-    });
+    const cfg = {
+      agents: {
+        defaults: {
+          model: { primary: "anthropic/claude-opus-4-6" },
+        },
+      },
+    } as OpenClawConfig;
 
     const resolved = resolveSessionModelRef(cfg, {
       sessionId: "s2",
@@ -363,9 +342,13 @@ describe("resolveSessionModelRef", () => {
   });
 
   test("falls back to resolved provider for unprefixed legacy runtime model", () => {
-    const cfg = createModelDefaultsConfig({
-      primary: "google-gemini-cli/gemini-3-pro-preview",
-    });
+    const cfg = {
+      agents: {
+        defaults: {
+          model: { primary: "google-gemini-cli/gemini-3-pro-preview" },
+        },
+      },
+    } as OpenClawConfig;
 
     const resolved = resolveSessionModelRef(cfg, {
       sessionId: "legacy-session",
@@ -383,9 +366,13 @@ describe("resolveSessionModelRef", () => {
   test("preserves provider from slash-prefixed model when modelProvider is missing", () => {
     // When model string contains a provider prefix (e.g. "anthropic/claude-sonnet-4-6")
     // parseModelRef should extract it correctly even without modelProvider set.
-    const cfg = createModelDefaultsConfig({
-      primary: "google-gemini-cli/gemini-3-pro-preview",
-    });
+    const cfg = {
+      agents: {
+        defaults: {
+          model: { primary: "google-gemini-cli/gemini-3-pro-preview" },
+        },
+      },
+    } as OpenClawConfig;
 
     const resolved = resolveSessionModelRef(cfg, {
       sessionId: "slash-model",
@@ -399,58 +386,78 @@ describe("resolveSessionModelRef", () => {
 });
 
 describe("resolveSessionModelIdentityRef", () => {
-  const resolveLegacyIdentityRef = (
-    cfg: OpenClawConfig,
-    modelProvider: string | undefined = undefined,
-  ) =>
-    resolveSessionModelIdentityRef(cfg, {
+  test("does not inherit default provider for unprefixed legacy runtime model", () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          model: { primary: "google-gemini-cli/gemini-3-pro-preview" },
+        },
+      },
+    } as OpenClawConfig;
+
+    const resolved = resolveSessionModelIdentityRef(cfg, {
       sessionId: "legacy-session",
       updatedAt: Date.now(),
       model: "claude-sonnet-4-6",
-      modelProvider,
+      modelProvider: undefined,
     });
-
-  test("does not inherit default provider for unprefixed legacy runtime model", () => {
-    const cfg = createModelDefaultsConfig({
-      primary: "google-gemini-cli/gemini-3-pro-preview",
-    });
-
-    const resolved = resolveLegacyIdentityRef(cfg);
 
     expect(resolved).toEqual({ model: "claude-sonnet-4-6" });
   });
 
   test("infers provider from configured model allowlist when unambiguous", () => {
-    const cfg = createModelDefaultsConfig({
-      primary: "google-gemini-cli/gemini-3-pro-preview",
-      models: {
-        "anthropic/claude-sonnet-4-6": {},
+    const cfg = {
+      agents: {
+        defaults: {
+          model: { primary: "google-gemini-cli/gemini-3-pro-preview" },
+          models: {
+            "anthropic/claude-sonnet-4-6": {},
+          },
+        },
       },
-    });
+    } as OpenClawConfig;
 
-    const resolved = resolveLegacyIdentityRef(cfg);
+    const resolved = resolveSessionModelIdentityRef(cfg, {
+      sessionId: "legacy-session",
+      updatedAt: Date.now(),
+      model: "claude-sonnet-4-6",
+      modelProvider: undefined,
+    });
 
     expect(resolved).toEqual({ provider: "anthropic", model: "claude-sonnet-4-6" });
   });
 
   test("keeps provider unknown when configured models are ambiguous", () => {
-    const cfg = createModelDefaultsConfig({
-      primary: "google-gemini-cli/gemini-3-pro-preview",
-      models: {
-        "anthropic/claude-sonnet-4-6": {},
-        "minimax/claude-sonnet-4-6": {},
+    const cfg = {
+      agents: {
+        defaults: {
+          model: { primary: "google-gemini-cli/gemini-3-pro-preview" },
+          models: {
+            "anthropic/claude-sonnet-4-6": {},
+            "minimax/claude-sonnet-4-6": {},
+          },
+        },
       },
-    });
+    } as OpenClawConfig;
 
-    const resolved = resolveLegacyIdentityRef(cfg);
+    const resolved = resolveSessionModelIdentityRef(cfg, {
+      sessionId: "legacy-session",
+      updatedAt: Date.now(),
+      model: "claude-sonnet-4-6",
+      modelProvider: undefined,
+    });
 
     expect(resolved).toEqual({ model: "claude-sonnet-4-6" });
   });
 
   test("preserves provider from slash-prefixed runtime model", () => {
-    const cfg = createModelDefaultsConfig({
-      primary: "google-gemini-cli/gemini-3-pro-preview",
-    });
+    const cfg = {
+      agents: {
+        defaults: {
+          model: { primary: "google-gemini-cli/gemini-3-pro-preview" },
+        },
+      },
+    } as OpenClawConfig;
 
     const resolved = resolveSessionModelIdentityRef(cfg, {
       sessionId: "slash-model",
@@ -463,12 +470,16 @@ describe("resolveSessionModelIdentityRef", () => {
   });
 
   test("infers wrapper provider for slash-prefixed runtime model when allowlist match is unique", () => {
-    const cfg = createModelDefaultsConfig({
-      primary: "google-gemini-cli/gemini-3-pro-preview",
-      models: {
-        "vercel-ai-gateway/anthropic/claude-sonnet-4-6": {},
+    const cfg = {
+      agents: {
+        defaults: {
+          model: { primary: "google-gemini-cli/gemini-3-pro-preview" },
+          models: {
+            "vercel-ai-gateway/anthropic/claude-sonnet-4-6": {},
+          },
+        },
       },
-    });
+    } as OpenClawConfig;
 
     const resolved = resolveSessionModelIdentityRef(cfg, {
       sessionId: "slash-model",
@@ -672,37 +683,97 @@ describe("listSessionsFromStore search", () => {
     expect(result.sessions.map((session) => session.key)).toEqual(["agent:main:cron:job-1"]);
   });
 
-  test.each([
-    {
-      name: "does not guess provider for legacy runtime model without modelProvider",
-      cfg: createLegacyRuntimeListConfig(),
-      runtimeModel: "claude-sonnet-4-6",
-      expectedProvider: undefined,
-    },
-    {
-      name: "infers provider for legacy runtime model when allowlist match is unique",
-      cfg: createLegacyRuntimeListConfig({ "anthropic/claude-sonnet-4-6": {} }),
-      runtimeModel: "claude-sonnet-4-6",
-      expectedProvider: "anthropic",
-    },
-    {
-      name: "infers wrapper provider for slash-prefixed legacy runtime model when allowlist match is unique",
-      cfg: createLegacyRuntimeListConfig({
-        "vercel-ai-gateway/anthropic/claude-sonnet-4-6": {},
-      }),
-      runtimeModel: "anthropic/claude-sonnet-4-6",
-      expectedProvider: "vercel-ai-gateway",
-    },
-  ])("$name", ({ cfg, runtimeModel, expectedProvider }) => {
+  test("does not guess provider for legacy runtime model without modelProvider", () => {
+    const cfg = {
+      session: { mainKey: "main" },
+      agents: {
+        defaults: {
+          model: { primary: "google-gemini-cli/gemini-3-pro-preview" },
+        },
+      },
+    } as OpenClawConfig;
+    const now = Date.now();
+    const store: Record<string, SessionEntry> = {
+      "agent:main:main": {
+        sessionId: "sess-main",
+        updatedAt: now,
+        model: "claude-sonnet-4-6",
+      } as SessionEntry,
+    };
+
     const result = listSessionsFromStore({
       cfg,
       storePath: "/tmp/sessions.json",
-      store: createLegacyRuntimeStore(runtimeModel),
+      store,
       opts: {},
     });
 
-    expect(result.sessions[0]?.modelProvider).toBe(expectedProvider);
-    expect(result.sessions[0]?.model).toBe(runtimeModel);
+    expect(result.sessions[0]?.modelProvider).toBeUndefined();
+    expect(result.sessions[0]?.model).toBe("claude-sonnet-4-6");
+  });
+
+  test("infers provider for legacy runtime model when allowlist match is unique", () => {
+    const cfg = {
+      session: { mainKey: "main" },
+      agents: {
+        defaults: {
+          model: { primary: "google-gemini-cli/gemini-3-pro-preview" },
+          models: {
+            "anthropic/claude-sonnet-4-6": {},
+          },
+        },
+      },
+    } as OpenClawConfig;
+    const now = Date.now();
+    const store: Record<string, SessionEntry> = {
+      "agent:main:main": {
+        sessionId: "sess-main",
+        updatedAt: now,
+        model: "claude-sonnet-4-6",
+      } as SessionEntry,
+    };
+
+    const result = listSessionsFromStore({
+      cfg,
+      storePath: "/tmp/sessions.json",
+      store,
+      opts: {},
+    });
+
+    expect(result.sessions[0]?.modelProvider).toBe("anthropic");
+    expect(result.sessions[0]?.model).toBe("claude-sonnet-4-6");
+  });
+
+  test("infers wrapper provider for slash-prefixed legacy runtime model when allowlist match is unique", () => {
+    const cfg = {
+      session: { mainKey: "main" },
+      agents: {
+        defaults: {
+          model: { primary: "google-gemini-cli/gemini-3-pro-preview" },
+          models: {
+            "vercel-ai-gateway/anthropic/claude-sonnet-4-6": {},
+          },
+        },
+      },
+    } as OpenClawConfig;
+    const now = Date.now();
+    const store: Record<string, SessionEntry> = {
+      "agent:main:main": {
+        sessionId: "sess-main",
+        updatedAt: now,
+        model: "anthropic/claude-sonnet-4-6",
+      } as SessionEntry,
+    };
+
+    const result = listSessionsFromStore({
+      cfg,
+      storePath: "/tmp/sessions.json",
+      store,
+      opts: {},
+    });
+
+    expect(result.sessions[0]?.modelProvider).toBe("vercel-ai-gateway");
+    expect(result.sessions[0]?.model).toBe("anthropic/claude-sonnet-4-6");
   });
 
   test("exposes unknown totals when freshness is stale or missing", () => {

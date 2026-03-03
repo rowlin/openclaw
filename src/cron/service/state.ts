@@ -96,8 +96,6 @@ export type CronServiceDeps = {
     text: string;
     channel: CronMessageChannel;
     to?: string;
-    mode?: "announce" | "webhook";
-    accountId?: string;
   }) => Promise<void>;
   onEvent?: (evt: CronEvent) => void;
 };
